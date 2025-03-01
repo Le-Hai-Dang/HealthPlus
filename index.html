@@ -9,22 +9,47 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <header class="main-header">
+        <div class="header-content">
+            <h1>Phòng tư vấn trực tuyến</h1>
+            <button id="login-button" onclick="toggleLoginForm()">Đăng nhập</button>
+        </div>
+    </header>
+
     <div class="container">
-        <div id="setup-box" class="setup-box">
+        <div id="login-box" class="setup-box login-popup hidden">
+            <div class="login-header">
+                <h2>Đăng nhập</h2>
+                <button class="close-btn" onclick="toggleLoginForm()">×</button>
+            </div>
+            <div class="login-form">
+                <input type="text" id="username" placeholder="Tên đăng nhập">
+                <input type="password" id="password" placeholder="Mật khẩu">
+                <button onclick="login()">Đăng nhập</button>
+            </div>
+        </div>
+
+        <div id="setup-box" class="setup-box hidden">
             <h2>Tư vấn trực tuyến</h2>
             <div id="peer-id-box">
                 ID của bạn: <span id="my-peer-id">Đang kết nối...</span>
             </div>
             <div class="join-box">
-                <input type="text" id="peer-id-input" placeholder="Nhập Peer ID để kết nối">
-                <button onclick="connectToPeer()">Kết nối</button>
+                <input type="text" id="peer-id-input" placeholder="Nhập Peer ID để kết nối" class="hidden">
+                <button onclick="connectToPeer()" class="hidden">Kết nối</button>
+                <button id="quick-connect" onclick="quickConnect()">Kết nối với bác sĩ</button>
             </div>
         </div>
 
         <div id="call-box" class="call-box hidden">
             <div class="video-container">
-                <video id="local-video" autoplay muted></video>
-                <video id="remote-video" autoplay></video>
+                <div class="video-wrapper">
+                    <video id="local-video" autoplay muted></video>
+                    <div class="video-label">Bạn</div>
+                </div>
+                <div class="video-wrapper">
+                    <video id="remote-video" autoplay></video>
+                </div>
             </div>
             <div class="controls">
                 <button id="camera-btn" onclick="toggleCamera()">Tắt Camera</button>

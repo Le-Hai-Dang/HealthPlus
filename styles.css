@@ -16,6 +16,7 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    padding-top: 80px;
 }
 
 /* Setup Box Styling */
@@ -129,11 +130,155 @@ button:hover {
 }
 
 /* Animation */
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
+
 
 .setup-box, .call-box {
     animation: fadeIn 0.5s ease-out;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.login-form input {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-size: 16px;
+}
+
+#quick-connect {
+    background: #FF9800;
+    width: 100%;
+    margin-top: 10px;
+}
+
+/* Header Styling */
+.main-header {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    padding: 15px 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-content h1 {
+    font-size: 24px;
+    margin: 0;
+}
+
+#login-button {
+    background: #4CAF50;
+    padding: 8px 20px;
+}
+
+/* Login Popup Styling */
+.login-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1001;
+    min-width: 320px;
+    animation: popupIn 0.3s ease-out;
+}
+
+.login-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #fff;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-btn:hover {
+    transform: none;
+    box-shadow: none;
+    color: #ff4444;
+}
+
+/* Thêm overlay khi hiện form login */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    animation: overlayIn 0.3s ease-out;
+}
+
+.overlay.active {
+    display: block;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Thêm animation cho popup */
+@keyframes popupIn {
+    from { 
+        opacity: 0; 
+        transform: translate(-50%, -60%) scale(0.9);
+    }
+    to { 
+        opacity: 1; 
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+@keyframes overlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Video Label Styling */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.video-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 5px 10px;
+    border-radius: 5px;
+    color: white;
+    z-index: 1;
+    font-size: 14px;
 } 
