@@ -16,42 +16,43 @@ const ADMIN_CREDENTIALS = {
 let isAdmin = false;
 let adminPeerId = null;
 
+// Thêm biến để theo dõi trạng thái kết nối ICE
+let iceConnectionTimeout;
+
 async function initializePeer() {
     console.log("Initializing peer...");
     
     // Đóng kết nối cũ nếu có
     if (peer) {
         peer.destroy();
+        // Đợi một chút để đảm bảo kết nối cũ được đóng hoàn toàn
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
+    const peerConfig = {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 3,
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ],
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all',
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
+        }
+    };
+
     if (isAdmin) {
-        peer = new Peer(ADMIN_CREDENTIALS.peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            secure: true,
-            debug: 3, // Thêm debug để theo dõi lỗi
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ]
-            }
-        });
+        peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
     } else {
-        peer = new Peer({
-            host: '0.peerjs.com', 
-            port: 443,
-            secure: true,
-            debug: 3,
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ]
-            }
-        });
+        peer = new Peer(peerConfig);
     }
 
     peer.on('open', (id) => {
@@ -215,15 +216,50 @@ function handleCall(call) {
     document.getElementById('call-box').classList.remove('hidden');
     updateControlButtons();
 
+    // Thêm xử lý ICE connection state
+    call.peerConnection.oniceconnectionstatechange = () => {
+        const state = call.peerConnection.iceConnectionState;
+        console.log('ICE connection state changed:', state);
+        
+        clearTimeout(iceConnectionTimeout);
+        
+        if (state === 'disconnected' || state === 'failed') {
+            iceConnectionTimeout = setTimeout(async () => {
+                console.log('ICE connection timeout, trying to reconnect...');
+                try {
+                    // Đóng kết nối cũ
+                    if (currentCall) {
+                        currentCall.close();
+                    }
+                    if (localStream) {
+                        localStream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    // Khởi tạo lại peer connection
+                    await initializePeer();
+                    
+                    // Thử kết nối lại
+                    if (isAdmin && waitingQueue.length > 0) {
+                        nextPatient();
+                    } else if (!isAdmin) {
+                        quickConnect();
+                    }
+                } catch (err) {
+                    console.error('Lỗi khi thử kết nối lại:', err);
+                }
+            }, 5000); // Đợi 5 giây trước khi thử kết nối lại
+        }
+    };
+
     call.on('stream', (remoteStream) => {
         document.getElementById('remote-video').srcObject = remoteStream;
     });
 
     call.on('close', () => {
+        clearTimeout(iceConnectionTimeout);
         endCall();
     });
 
-    // Hiển thị nút "Bệnh nhân tiếp theo" nếu là admin
     if (isAdmin) {
         showNextPatientButton();
     }
