@@ -37,43 +37,98 @@ const peerConfig = {
     host: '0.peerjs.com',
     port: 443,
     secure: true,
-    debug: 1,
+    debug: 0,
     config: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' }
         ],
-        iceCandidatePoolSize: 10
-    }
+        iceCandidatePoolSize: 10,
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle'
+    },
+    pingInterval: 5000,
+    path: '/',
+    key: 'peerjs'
 };
 
 async function initializePeer() {
+    // Tránh khởi tạo nhiều lần
     if (peer && peer.connected) {
-        return; // Không khởi tạo lại nếu đang kết nối
-    }
-    
-    console.log("Khởi tạo kết nối peer...");
-    
-    if (peer) {
-        peer.destroy();
-        peer = null;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    if (isAdmin) {
-        peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
-    } else {
-        peer = new Peer(peerConfig);
+        console.log('Peer đã được kết nối');
+        return;
     }
 
-    peer.on('open', (id) => {
-        console.log("Kết nối thành công, ID:", id);
-        document.getElementById('my-peer-id').textContent = id;
-        if (isAdmin) {
-            adminPeerId = id;
-            localStorage.setItem('adminPeerId', id);
+    // Nếu đang có peer cũ, đợi nó đóng hoàn toàn
+    if (peer) {
+        try {
+            peer.destroy();
+            peer = null;
+            // Đợi lâu hơn để đảm bảo kết nối cũ được dọn dẹp
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        } catch (err) {
+            console.error('Lỗi khi đóng kết nối cũ:', err);
         }
-    });
+    }
+
+    // Tạo peer mới với số lần thử lại
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+        try {
+            if (isAdmin) {
+                peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
+            } else {
+                peer = new Peer(peerConfig);
+            }
+
+            // Đợi kết nối thành công
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Kết nối timeout'));
+                }, 10000);
+
+                peer.on('open', (id) => {
+                    clearTimeout(timeout);
+                    console.log("Kết nối thành công, ID:", id);
+                    document.getElementById('my-peer-id').textContent = id;
+                    if (isAdmin) {
+                        adminPeerId = id;
+                        localStorage.setItem('adminPeerId', id);
+                    }
+                    resolve();
+                });
+
+                peer.on('error', (error) => {
+                    clearTimeout(timeout);
+                    reject(error);
+                });
+            });
+
+            // Nếu kết nối thành công, thoát khỏi vòng lặp
+            break;
+
+        } catch (err) {
+            console.error(`Lần thử ${retryCount + 1} thất bại:`, err);
+            retryCount++;
+            
+            if (retryCount === maxRetries) {
+                alert('Không thể kết nối tới server. Vui lòng thử lại sau.');
+                return;
+            }
+            
+            // Đợi trước khi thử lại
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+    }
+
+    // Thiết lập các event handlers
+    setupPeerEventHandlers();
+}
+
+function setupPeerEventHandlers() {
+    if (!peer) return;
 
     peer.on('error', (error) => {
         console.error('Lỗi PeerJS:', error.type);
@@ -84,7 +139,12 @@ async function initializePeer() {
 
     peer.on('disconnected', () => {
         console.log('Mất kết nối với server');
-        endCall();
+        // Không tự động kết nối lại ngay
+        setTimeout(async () => {
+            if (!peer || !peer.connected) {
+                await initializePeer();
+            }
+        }, 5000);
     });
 
     peer.on('call', async (call) => {
@@ -650,26 +710,5 @@ function updateControlButtons() {
     } else {
         endCallBtn.classList.add('hidden');
         nextPatientBtn.classList.add('hidden');
-    }
-}
-
-// Sửa lại hàm getLocalStream
-async function getLocalStream() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-        // Áp dụng các cài đặt nâng cao cho video track
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-            const capabilities = videoTrack.getCapabilities();
-            await videoTrack.applyConstraints({
-                width: { ideal: capabilities.width.max },
-                height: { ideal: capabilities.height.max },
-                frameRate: { max: 24 }
-            });
-        }
-        return stream;
-    } catch (err) {
-        console.error('Lỗi khi lấy local stream:', err);
-        throw err;
     }
 }
