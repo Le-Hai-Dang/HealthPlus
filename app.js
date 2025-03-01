@@ -23,9 +23,15 @@ const ICE_SERVERS = {
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' }
+        { urls: 'stun:stun4.l.google.com:19302' },
+        {
+            urls: 'turn:numb.viagenie.ca',
+            username: 'webrtc@live.com',
+            credential: 'muazkh'
+        }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all'
 };
 
 const mediaConstraints = {
@@ -197,7 +203,6 @@ async function initializePeer() {
 }
 
 async function connectToPeer(peerId) {
-    // Nếu không có peerId được truyền vào, lấy từ input
     if (!peerId) {
         peerId = document.getElementById('peer-id-input').value;
     }
@@ -207,41 +212,38 @@ async function connectToPeer(peerId) {
         return;
     }
 
-    if (!peer || !peer.connected) {
-        alert('Đang kết nối lại...');
-        await initializePeer();
-        return;
-    }
-
     try {
-        console.log('Đang kết nối tới peer:', peerId);
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+        const ICE_TIMEOUT = 15000; // 15 giây timeout cho ICE connection
         
+        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         document.getElementById('local-video').srcObject = localStream;
         
-        // Đảm bảo peer đã được khởi tạo và kết nối
         if (peer && peer.connected) {
             const call = peer.call(peerId, localStream);
-            if (call) {
-                console.log('Đã gọi tới peer:', peerId);
-                handleCall(call);
-            } else {
-                throw new Error('Không thể tạo cuộc gọi');
-            }
+            
+            // Thêm promise timeout cho ICE connection
+            const iceConnected = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('ICE Connection timeout'));
+                }, ICE_TIMEOUT);
+                
+                call.peerConnection.oniceconnectionstatechange = () => {
+                    if (call.peerConnection.iceConnectionState === 'connected') {
+                        clearTimeout(timeout);
+                        resolve();
+                    }
+                };
+            });
+            
+            await iceConnected;
+            handleCall(call);
+            
         } else {
             throw new Error('Chưa kết nối tới server');
         }
     } catch (err) {
         console.error('Lỗi khi kết nối:', err);
         alert('Lỗi: ' + err.message);
-        // Dọn dẹp stream nếu có lỗi
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
@@ -250,6 +252,52 @@ async function connectToPeer(peerId) {
 
 function handleCall(call) {
     currentCall = call;
+    
+    // Theo dõi trạng thái kết nối ICE
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
+    
+    call.peerConnection.oniceconnectionstatechange = () => {
+        const state = call.peerConnection.iceConnectionState;
+        console.log('Trạng thái kết nối ICE:', state);
+        
+        if (state === 'disconnected' || state === 'failed') {
+            console.log('Kết nối ICE bị gián đoạn, đang thử kết nối lại...');
+            
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                
+                setTimeout(async () => {
+                    try {
+                        // Thử tạo lại các ICE candidates
+                        await call.peerConnection.restartIce();
+                        
+                        // Nếu vẫn thất bại sau 10 giây, thử khởi tạo lại kết nối
+                        setTimeout(() => {
+                            if (call.peerConnection.iceConnectionState === 'disconnected' ||
+                                call.peerConnection.iceConnectionState === 'failed') {
+                                console.log(`Lần thử kết nối lại thứ ${reconnectAttempts} thất bại`);
+                                if (reconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
+                                    console.log('Đã hết số lần thử lại, kết thúc cuộc gọi');
+                                    endCall();
+                                }
+                            }
+                        }, 10000);
+                        
+                    } catch (err) {
+                        console.error('Lỗi khi thử kết nối lại:', err);
+                    }
+                }, 2000);
+            }
+        }
+        
+        if (state === 'connected') {
+            console.log('Kết nối ICE đã được thiết lập lại');
+            reconnectAttempts = 0;
+        }
+    };
+
+    // Phần code xử lý stream và UI giữ nguyên
     document.getElementById('setup-box').classList.add('hidden');
     document.getElementById('call-box').classList.remove('hidden');
     updateControlButtons();
@@ -262,7 +310,6 @@ function handleCall(call) {
         endCall();
     });
 
-    // Hiển thị nút "Bệnh nhân tiếp theo" nếu là admin
     if (isAdmin) {
         showNextPatientButton();
     }
