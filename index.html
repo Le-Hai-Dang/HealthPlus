@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phòng tư vấn trực tuyến</title>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="app.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div id="setup-box" class="setup-box">
+            <h2>Tư vấn trực tuyến</h2>
+            <div id="peer-id-box">
+                ID của bạn: <span id="my-peer-id">Đang kết nối...</span>
+            </div>
+            <div class="join-box">
+                <input type="text" id="peer-id-input" placeholder="Nhập Peer ID để kết nối">
+                <button onclick="connectToPeer()">Kết nối</button>
+            </div>
+        </div>
+
+        <div id="call-box" class="call-box hidden">
+            <div class="video-container">
+                <video id="local-video" autoplay muted></video>
+                <video id="remote-video" autoplay></video>
+            </div>
+            <div class="controls">
+                <button id="camera-btn" onclick="toggleCamera()">Tắt Camera</button>
+                <button id="mic-btn" onclick="toggleMic()">Tắt Mic</button>
+                <button id="end-call-btn" onclick="endCall()">Kết thúc</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
