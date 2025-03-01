@@ -16,70 +16,76 @@ const ADMIN_CREDENTIALS = {
 let isAdmin = false;
 let adminPeerId = null;
 
+const peerConfig = {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    debug: 0, // Giảm debug log
+    config: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            {
+                urls: "turn:a.relay.metered.ca:443",
+                username: "83e4a8b53f6b99c738b49ae6",
+                credential: "2+xwRbVF/ekSqV3v"
+            }
+        ],
+        iceTransportPolicy: 'relay', // Force sử dụng TURN server
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+        iceCandidatePoolSize: 1
+    }
+};
+
+const mediaConstraints = {
+    video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { max: 15 },
+        facingMode: 'user'
+    },
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 22050,
+        channelCount: 1
+    }
+};
+
 async function initializePeer() {
-    console.log("Initializing peer...");
-    
-    // Đóng kết nối cũ nếu có
     if (peer) {
         peer.destroy();
+        peer = null;
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    
+
     if (isAdmin) {
-        peer = new Peer(ADMIN_CREDENTIALS.peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            secure: true,
-            debug: 3, // Thêm debug để theo dõi lỗi
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ]
-            }
-        });
+        peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
     } else {
-        peer = new Peer({
-            host: '0.peerjs.com', 
-            port: 443,
-            secure: true,
-            debug: 3,
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ]
-            }
-        });
+        peer = new Peer(peerConfig);
     }
 
     peer.on('open', (id) => {
-        console.log("Peer ID của tôi là:", id);
+        console.log("Connected with ID:", id);
         document.getElementById('my-peer-id').textContent = id;
-        peer.connected = true;
         if (isAdmin) {
             adminPeerId = id;
             localStorage.setItem('adminPeerId', id);
         }
-        updateControlButtons();
     });
 
     peer.on('error', (error) => {
-        console.error('Lỗi PeerJS:', error);
+        console.error('PeerJS error:', error.type);
         if (error.type === 'peer-unavailable') {
-            // Thử khởi tạo lại kết nối
-            setTimeout(initializePeer, 5000);
+            alert('Không thể kết nối với người dùng này');
         }
     });
 
     peer.on('disconnected', () => {
-        console.log('Mất kết nối với server');
-        peer.connected = false;
-        // Thử kết nối lại sau 5 giây
-        setTimeout(() => {
-            peer.reconnect();
-        }, 5000);
+        console.log('Disconnected from server');
+        endCall();
     });
 
     peer.on('call', async (call) => {
