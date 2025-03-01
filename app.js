@@ -7,7 +7,8 @@ let isMicOn = true;
 // Thêm biến để lưu trữ thông tin admin
 const ADMIN_CREDENTIALS = {
     username: 'admin',
-    password: '123456'
+    password: '123456',
+    peerId: 'doctor123'
 };
 
 let isAdmin = false;
@@ -16,17 +17,33 @@ let adminPeerId = null;
 async function initializePeer() {
     console.log("Initializing peer...");
     
-    peer = new Peer({
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-        }
-    });
+    if (isAdmin) {
+        // Nếu là admin, sử dụng peerId cố định
+        peer = new Peer(ADMIN_CREDENTIALS.peerId, {
+            host: '0.peerjs.com',
+            port: 443,
+            secure: true,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        });
+    } else {
+        // Nếu là user thường, để PeerJS tự tạo ID
+        peer = new Peer({
+            host: '0.peerjs.com',
+            port: 443,
+            secure: true,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        });
+    }
     
     peer.on('open', (id) => {
         console.log("Peer ID của tôi là:", id);
@@ -227,10 +244,9 @@ function login() {
 
 // Sửa lại hàm quickConnect để không hiện thông báo "đang kết nối lại"
 async function quickConnect() {
-    const adminId = localStorage.getItem('adminPeerId');
+    const adminId = ADMIN_CREDENTIALS.peerId; // Sử dụng peerId cố định
     if (adminId) {
         console.log('Kết nối nhanh với bác sĩ ID:', adminId);
-        document.getElementById('peer-id-input').value = adminId;
         
         // Kiểm tra kết nối ngầm
         if (!peer || !peer.connected) {
