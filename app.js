@@ -16,31 +16,6 @@ const ADMIN_CREDENTIALS = {
 let isAdmin = false;
 let adminPeerId = null;
 
-// Thêm các STUN/TURN servers bổ sung
-const ICE_SERVERS = {
-    'iceServers': [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' }
-    ],
-    iceCandidatePoolSize: 10
-};
-
-const mediaConstraints = {
-    video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 15 }
-    },
-    audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-    }
-};
-
 async function initializePeer() {
     console.log("Initializing peer...");
     
@@ -55,7 +30,13 @@ async function initializePeer() {
             port: 443,
             secure: true,
             debug: 3, // Thêm debug để theo dõi lỗi
-            config: ICE_SERVERS
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' }
+                ]
+            }
         });
     } else {
         peer = new Peer({
@@ -63,7 +44,13 @@ async function initializePeer() {
             port: 443,
             secure: true,
             debug: 3,
-            config: ICE_SERVERS
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' }
+                ]
+            }
         });
     }
 
@@ -147,32 +134,6 @@ async function initializePeer() {
             console.error('Lỗi khi truy cập media:', err);
             alert('Không thể truy cập camera hoặc microphone: ' + err.message);
         }
-
-        // Thêm xử lý cho sự kiện ICE connection state change
-        call.peerConnection.oniceconnectionstatechange = () => {
-            const state = call.peerConnection.iceConnectionState;
-            console.log('ICE connection state:', state);
-            
-            if (state === 'disconnected' || state === 'failed') {
-                // Thử kết nối lại sau 2 giây
-                setTimeout(async () => {
-                    try {
-                        if (currentCall) {
-                            currentCall.close();
-                        }
-                        // Khởi tạo lại kết nối
-                        await initializePeer();
-                        if (isAdmin && waitingQueue.length > 0) {
-                            nextPatient();
-                        } else if (!isAdmin) {
-                            quickConnect();
-                        }
-                    } catch (err) {
-                        console.error('Lỗi khi thử kết nối lại:', err);
-                    }
-                }, 2000);
-            }
-        };
     });
 
     // Thêm xử lý sự kiện connection
