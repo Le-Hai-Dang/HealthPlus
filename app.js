@@ -37,58 +37,28 @@ const peerConfig = {
     host: '0.peerjs.com',
     port: 443,
     secure: true,
-    debug: 3,
+    debug: 1,
     config: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { 
-                urls: "turn:a.relay.metered.ca:80",
-                username: "83e4a8b53f6b99c738b49ae6",
-                credential: "2+xwRbVF/ekSqV3v",
-            },
-            {
-                urls: "turn:a.relay.metered.ca:443",
-                username: "83e4a8b53f6b99c738b49ae6", 
-                credential: "2+xwRbVF/ekSqV3v",
-            },
-            {
-                urls: "turn:a.relay.metered.ca:443?transport=tcp",
-                username: "83e4a8b53f6b99c738b49ae6",
-                credential: "2+xwRbVF/ekSqV3v",
-            }
+            { urls: 'stun:stun1.l.google.com:19302' }
         ],
-        iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
+        iceCandidatePoolSize: 10
     }
 };
 
 async function initializePeer() {
-    console.log("Initializing peer...");
+    if (peer && peer.connected) {
+        return; // Không khởi tạo lại nếu đang kết nối
+    }
     
-    // Đóng kết nối cũ nếu có
+    console.log("Khởi tạo kết nối peer...");
+    
     if (peer) {
         peer.destroy();
         peer = null;
-        // Đợi lâu hơn để đảm bảo kết nối cũ được đóng hoàn toàn
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    
-    const peerConfig = {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 3,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10
-        }
-    };
     
     if (isAdmin) {
         peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
@@ -97,7 +67,7 @@ async function initializePeer() {
     }
 
     peer.on('open', (id) => {
-        console.log("Peer ID của tôi là:", id);
+        console.log("Kết nối thành công, ID:", id);
         document.getElementById('my-peer-id').textContent = id;
         if (isAdmin) {
             adminPeerId = id;
@@ -106,21 +76,15 @@ async function initializePeer() {
     });
 
     peer.on('error', (error) => {
-        console.error('Lỗi PeerJS:', error);
+        console.error('Lỗi PeerJS:', error.type);
         if (error.type === 'peer-unavailable') {
-            setTimeout(() => {
-                if (!peer || !peer.connected) {
-                    initializePeer();
-                }
-            }, 5000);
+            alert('Không thể kết nối với người dùng này');
         }
     });
 
     peer.on('disconnected', () => {
         console.log('Mất kết nối với server');
-        // Không tự động reconnect nữa
         endCall();
-        initializePeer();
     });
 
     peer.on('call', async (call) => {
@@ -230,18 +194,20 @@ async function connectToPeer(peerId) {
 }
 
 function handleCall(call) {
+    if (currentCall) {
+        currentCall.close();
+    }
     currentCall = call;
     
     call.on('stream', (remoteStream) => {
-        document.getElementById('remote-video').srcObject = remoteStream;
+        const remoteVideo = document.getElementById('remote-video');
+        if (remoteVideo) {
+            remoteVideo.srcObject = remoteStream;
+        }
     });
 
     call.on('close', () => {
-        endCall();
-    });
-
-    call.on('error', () => {
-        console.error('Lỗi cuộc gọi');
+        console.log('Cuộc gọi kết thúc');
         endCall();
     });
 
@@ -275,19 +241,16 @@ function endCall() {
         try {
             currentCall.close();
         } catch (err) {
-            console.error('Lỗi khi đóng cuộc gọi:', err);
+            console.error('Lỗi khi đóng cuộc gọi');
         }
         currentCall = null;
     }
     
     if (localStream) {
         try {
-            localStream.getTracks().forEach(track => {
-                track.stop();
-                localStream.removeTrack(track);
-            });
+            localStream.getTracks().forEach(track => track.stop());
         } catch (err) {
-            console.error('Lỗi khi dọn dẹp stream:', err);
+            console.error('Lỗi khi dọn dẹp stream');
         }
         localStream = null;
     }
@@ -298,11 +261,6 @@ function endCall() {
     document.getElementById('remote-video').srcObject = null;
     
     currentUserId = null;
-    
-    // Khởi tạo lại peer nếu cần
-    if (!peer || !peer.connected) {
-        initializePeer();
-    }
 }
 
 // Thêm hàm toggleLoginForm
