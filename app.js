@@ -87,14 +87,17 @@ async function initializePeer() {
         
         try {
             if (isAdmin) {
-                // Nếu đang có cuộc gọi
                 if (currentCall) {
+                    // Nếu đang có cuộc gọi, thêm vào hàng đợi
                     waitingQueue.push(call.peer);
                     const conn = peer.connect(call.peer);
-                    conn.on('open', () => {
-                        conn.send({
-                            type: 'waiting',
-                            position: waitingQueue.length
+                    await new Promise(resolve => {
+                        conn.on('open', () => {
+                            conn.send({
+                                type: 'waiting',
+                                position: waitingQueue.length
+                            });
+                            resolve();
                         });
                     });
                     call.close();
@@ -103,36 +106,19 @@ async function initializePeer() {
                 }
 
                 currentUserId = call.peer;
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-                
-                document.getElementById('local-video').srcObject = localStream;
-                call.answer(localStream);
-                handleCall(call);
+                localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
             } else {
-                // Chỉ khởi tạo stream khi được bác sĩ gọi
-                document.getElementById('call-box').classList.remove('hidden');
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-                document.getElementById('local-video').srcObject = localStream;
-                call.answer(localStream);
-                handleCall(call);
+                localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
             }
+
+            document.getElementById('local-video').srcObject = localStream;
+            call.answer(localStream);
+            handleCall(call);
+
         } catch (err) {
-            console.error('Lỗi khi truy cập media:', err);
-            alert('Không thể truy cập camera hoặc microphone: ' + err.message);
+            console.error('Lỗi khi xử lý cuộc gọi đến:', err);
+            if (call) call.close();
+            alert('Không thể truy cập camera hoặc microphone');
         }
     });
 
@@ -218,19 +204,27 @@ function handleCall(call) {
     document.getElementById('setup-box').classList.add('hidden');
     document.getElementById('call-box').classList.remove('hidden');
     
+    let streamTimeout = setTimeout(() => {
+        console.error('Timeout waiting for stream');
+        endCall();
+    }, 10000);
+
     call.on('stream', (remoteStream) => {
+        clearTimeout(streamTimeout);
         const remoteVideo = document.getElementById('remote-video');
         if (remoteVideo) {
             remoteVideo.srcObject = remoteStream;
         }
     });
 
-    call.on('error', (err) => {
-        console.error('Call error:', err);
+    call.on('close', () => {
+        clearTimeout(streamTimeout);
         endCall();
     });
 
-    call.on('close', () => {
+    call.on('error', (err) => {
+        clearTimeout(streamTimeout);
+        console.error('Call error:', err);
         endCall();
     });
 
@@ -342,48 +336,36 @@ function login() {
 
 // Sửa lại hàm quickConnect để không hiện thông báo "đang kết nối lại"
 async function quickConnect() {
-    const adminId = ADMIN_CREDENTIALS.peerId;
-    if (adminId) {
-        try {
-            console.log('Kết nối nhanh với bác sĩ ID:', adminId);
-            
-            if (!peer || !peer.connected) {
-                await initializePeer();
-            }
-            
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
+    try {
+        if (!peer || !peer.connected) {
+            await initializePeer();
+            // Đợi peer kết nối
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
+                peer.on('open', () => {
+                    clearTimeout(timeout);
+                    resolve();
+                });
             });
-            
-            document.getElementById('local-video').srcObject = localStream;
-            const call = peer.call(adminId, localStream);
-            
-            // Xử lý khi cuộc gọi bị đóng ngay lập tức (do bác sĩ đang bận)
-            call.on('close', () => {
-                if (!document.getElementById('waiting-box').classList.contains('hidden')) {
-                    // Nếu đang ở trạng thái chờ thì không làm gì
-                    return;
-                }
-                // Nếu không phải do waiting box, reset lại giao diện
-                document.getElementById('local-video').srcObject = null;
-                localStream.getTracks().forEach(track => track.stop());
-            });
-
-            handleCall(call);
-        } catch (err) {
-            console.error('Lỗi khi kết nối:', err);
-            alert('Lỗi: ' + err.message);
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
         }
-    } else {
-        alert('Không tìm thấy bác sĩ trực tuyến, vui lòng thử lại sau');
+
+        // Lấy stream trước khi gọi
+        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        document.getElementById('local-video').srcObject = localStream;
+
+        // Kết nối với admin (doctor123)
+        const call = peer.call('doctor123', localStream);
+        if (!call) {
+            throw new Error('Không thể tạo cuộc gọi');
+        }
+        handleCall(call);
+
+    } catch (err) {
+        console.error('Lỗi khi kết nối nhanh:', err);
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        alert('Không thể kết nối với bác sĩ. Vui lòng thử lại sau.');
     }
 }
 
