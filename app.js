@@ -19,6 +19,56 @@ let adminPeerId = null;
 // Thêm biến để theo dõi trạng thái kết nối ICE
 let iceConnectionTimeout;
 
+// Thêm cấu hình MediaStream để tối ưu băng thông
+const mediaConstraints = {
+    video: {
+        width: { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 720 },
+        frameRate: { ideal: 15, max: 24 },
+        facingMode: 'user'
+    },
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 44100,
+        channelCount: 1
+    }
+};
+
+// Thêm cấu hình STUN/TURN servers
+const peerConfig = {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+    debug: 3,
+    config: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { 
+                urls: "turn:a.relay.metered.ca:80",
+                username: "83e4a8b53f6b99c738b49ae6",
+                credential: "2+xwRbVF/ekSqV3v",
+            },
+            {
+                urls: "turn:a.relay.metered.ca:443",
+                username: "83e4a8b53f6b99c738b49ae6", 
+                credential: "2+xwRbVF/ekSqV3v",
+            },
+            {
+                urls: "turn:a.relay.metered.ca:443?transport=tcp",
+                username: "83e4a8b53f6b99c738b49ae6",
+                credential: "2+xwRbVF/ekSqV3v",
+            }
+        ],
+        iceCandidatePoolSize: 10,
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
+    }
+};
+
 async function initializePeer() {
     console.log("Initializing peer...");
     
@@ -29,26 +79,6 @@ async function initializePeer() {
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
-    const peerConfig = {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 3,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10,
-            iceTransportPolicy: 'all',
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
-        }
-    };
-
     if (isAdmin) {
         peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
     } else {
@@ -104,14 +134,7 @@ async function initializePeer() {
                 }
 
                 currentUserId = call.peer;
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
+                localStream = await getLocalStream();
                 
                 document.getElementById('local-video').srcObject = localStream;
                 call.answer(localStream);
@@ -119,14 +142,7 @@ async function initializePeer() {
             } else {
                 // Chỉ khởi tạo stream khi được bác sĩ gọi
                 document.getElementById('call-box').classList.remove('hidden');
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
+                localStream = await getLocalStream();
                 document.getElementById('local-video').srcObject = localStream;
                 call.answer(localStream);
                 handleCall(call);
@@ -177,14 +193,7 @@ async function connectToPeer(peerId) {
 
     try {
         console.log('Đang kết nối tới peer:', peerId);
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+        localStream = await getLocalStream();
         
         document.getElementById('local-video').srcObject = localStream;
         
@@ -212,10 +221,9 @@ async function connectToPeer(peerId) {
 
 function handleCall(call) {
     currentCall = call;
-    document.getElementById('setup-box').classList.add('hidden');
-    document.getElementById('call-box').classList.remove('hidden');
-    updateControlButtons();
-
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 3;
+    
     // Thêm xử lý ICE connection state
     call.peerConnection.oniceconnectionstatechange = () => {
         const state = call.peerConnection.iceConnectionState;
@@ -225,30 +233,43 @@ function handleCall(call) {
         
         if (state === 'disconnected' || state === 'failed') {
             iceConnectionTimeout = setTimeout(async () => {
-                console.log('ICE connection timeout, trying to reconnect...');
-                try {
-                    // Đóng kết nối cũ
-                    if (currentCall) {
-                        currentCall.close();
+                console.log('ICE connection timeout, attempt:', reconnectAttempts + 1);
+                
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    try {
+                        // Thử negotiate lại ICE connection
+                        await call.peerConnection.restartIce();
+                    } catch (err) {
+                        console.error('Lỗi khi restart ICE:', err);
+                        // Nếu restart ICE thất bại, thử reconnect
+                        if (currentCall) {
+                            currentCall.close();
+                        }
+                        if (localStream) {
+                            localStream.getTracks().forEach(track => track.stop());
+                        }
+                        await initializePeer();
+                        if (!isAdmin) {
+                            quickConnect();
+                        }
                     }
-                    if (localStream) {
-                        localStream.getTracks().forEach(track => track.stop());
-                    }
-                    
-                    // Khởi tạo lại peer connection
-                    await initializePeer();
-                    
-                    // Thử kết nối lại
-                    if (isAdmin && waitingQueue.length > 0) {
-                        nextPatient();
-                    } else if (!isAdmin) {
-                        quickConnect();
-                    }
-                } catch (err) {
-                    console.error('Lỗi khi thử kết nối lại:', err);
+                } else {
+                    console.log('Đã vượt quá số lần thử kết nối lại');
+                    endCall();
                 }
-            }, 5000); // Đợi 5 giây trước khi thử kết nối lại
+            }, 3000); // Giảm thời gian chờ xuống 3 giây
         }
+    };
+
+    // Thêm xử lý cho connection state
+    call.peerConnection.onconnectionstatechange = () => {
+        console.log('Connection state:', call.peerConnection.connectionState);
+    };
+
+    // Thêm xử lý cho signaling state
+    call.peerConnection.onsignalingstatechange = () => {
+        console.log('Signaling state:', call.peerConnection.signalingState);
     };
 
     call.on('stream', (remoteStream) => {
@@ -364,14 +385,7 @@ async function quickConnect() {
                 await initializePeer();
             }
             
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
+            localStream = await getLocalStream();
             
             document.getElementById('local-video').srcObject = localStream;
             const call = peer.call(adminId, localStream);
@@ -614,14 +628,7 @@ async function startNewCall(peerId, conn) {
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Khởi tạo stream mới trước khi đóng cuộc gọi cũ
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+        localStream = await getLocalStream();
 
         // Sau khi có stream mới mới đóng cuộc gọi cũ
         if (currentCall) {
@@ -703,5 +710,26 @@ function updateControlButtons() {
     } else {
         endCallBtn.classList.add('hidden');
         nextPatientBtn.classList.add('hidden');
+    }
+}
+
+// Sửa lại hàm getLocalStream
+async function getLocalStream() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        // Áp dụng các cài đặt nâng cao cho video track
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+            const capabilities = videoTrack.getCapabilities();
+            await videoTrack.applyConstraints({
+                width: { ideal: capabilities.width.max },
+                height: { ideal: capabilities.height.max },
+                frameRate: { max: 24 }
+            });
+        }
+        return stream;
+    } catch (err) {
+        console.error('Lỗi khi lấy local stream:', err);
+        throw err;
     }
 }
