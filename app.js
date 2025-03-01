@@ -20,20 +20,14 @@ const peerConfig = {
     host: '0.peerjs.com',
     port: 443,
     secure: true,
-    debug: 0, // Giảm debug log
+    debug: 0,
     config: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            {
-                urls: "turn:a.relay.metered.ca:443",
-                username: "83e4a8b53f6b99c738b49ae6",
-                credential: "2+xwRbVF/ekSqV3v"
-            }
+            { urls: 'stun:stun1.l.google.com:19302' }
         ],
-        iceTransportPolicy: 'relay', // Force sử dụng TURN server
+        iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
         iceCandidatePoolSize: 1
     }
 };
@@ -164,7 +158,6 @@ async function initializePeer() {
 }
 
 async function connectToPeer(peerId) {
-    // Nếu không có peerId được truyền vào, lấy từ input
     if (!peerId) {
         peerId = document.getElementById('peer-id-input').value;
     }
@@ -174,62 +167,73 @@ async function connectToPeer(peerId) {
         return;
     }
 
-    if (!peer || !peer.connected) {
-        alert('Đang kết nối lại...');
-        await initializePeer();
-        return;
-    }
-
     try {
-        console.log('Đang kết nối tới peer:', peerId);
+        if (!peer || !peer.connected) {
+            await initializePeer();
+            // Đợi peer kết nối
+            await new Promise((resolve) => {
+                const timeout = setTimeout(() => resolve(), 5000);
+                peer.on('open', () => {
+                    clearTimeout(timeout);
+                    resolve();
+                });
+            });
+        }
+
         localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
+            video: {
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: { max: 15 }
+            },
             audio: {
                 echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
+                noiseSuppression: true
             }
         });
         
         document.getElementById('local-video').srcObject = localStream;
         
-        // Đảm bảo peer đã được khởi tạo và kết nối
-        if (peer && peer.connected) {
-            const call = peer.call(peerId, localStream);
-            if (call) {
-                console.log('Đã gọi tới peer:', peerId);
-                handleCall(call);
-            } else {
-                throw new Error('Không thể tạo cuộc gọi');
-            }
+        const call = peer.call(peerId, localStream);
+        if (call) {
+            handleCall(call);
         } else {
-            throw new Error('Chưa kết nối tới server');
+            throw new Error('Không thể tạo cuộc gọi');
         }
     } catch (err) {
         console.error('Lỗi khi kết nối:', err);
-        alert('Lỗi: ' + err.message);
-        // Dọn dẹp stream nếu có lỗi
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
+        alert('Không thể kết nối: ' + err.message);
     }
 }
 
 function handleCall(call) {
+    if (currentCall) {
+        currentCall.close();
+    }
     currentCall = call;
+    
     document.getElementById('setup-box').classList.add('hidden');
     document.getElementById('call-box').classList.remove('hidden');
-    updateControlButtons();
-
+    
     call.on('stream', (remoteStream) => {
-        document.getElementById('remote-video').srcObject = remoteStream;
+        const remoteVideo = document.getElementById('remote-video');
+        if (remoteVideo) {
+            remoteVideo.srcObject = remoteStream;
+        }
+    });
+
+    call.on('error', (err) => {
+        console.error('Call error:', err);
+        endCall();
     });
 
     call.on('close', () => {
         endCall();
     });
 
-    // Hiển thị nút "Bệnh nhân tiếp theo" nếu là admin
     if (isAdmin) {
         showNextPatientButton();
     }
@@ -257,10 +261,23 @@ function toggleMic() {
 
 function endCall() {
     if (currentCall) {
-        currentCall.close();
+        try {
+            currentCall.close();
+        } catch (err) {
+            console.error('Error closing call');
+        }
+        currentCall = null;
     }
+    
     if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+        try {
+            localStream.getTracks().forEach(track => {
+                track.stop();
+            });
+        } catch (err) {
+            console.error('Error stopping tracks');
+        }
+        localStream = null;
     }
     
     document.getElementById('call-box').classList.add('hidden');
