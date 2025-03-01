@@ -41,6 +41,14 @@
             </div>
         </div>
 
+        <div id="waiting-box" class="setup-box hidden">
+            <h2>Đang chờ bác sĩ</h2>
+            <div class="waiting-status">
+                <p>Bác sĩ đang bận với bệnh nhân khác</p>
+                <p>Vị trí của bạn: <span id="queue-position">--</span></p>
+            </div>
+        </div>
+
         <div id="call-box" class="call-box hidden">
             <div class="video-container">
                 <div class="video-wrapper">
@@ -55,6 +63,8 @@
                 <button id="camera-btn" onclick="toggleCamera()">Tắt Camera</button>
                 <button id="mic-btn" onclick="toggleMic()">Tắt Mic</button>
                 <button id="end-call-btn" onclick="endCall()">Kết thúc</button>
+                <button id="next-patient-btn" onclick="nextPatient()" class="hidden">Bệnh nhân tiếp theo</button>
+                <button id="return-btn" onclick="returnToClinic()" class="hidden">Quay lại phòng tư vấn</button>
             </div>
         </div>
     </div>

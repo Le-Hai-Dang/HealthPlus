@@ -112,6 +112,19 @@ button:hover {
     background: #f44336;
 }
 
+#return-btn {
+    background: #4CAF50;
+    margin-left: 10px;
+}
+
+#return-btn:hover {
+    background: #388E3C;
+}
+
+#return-btn.hidden {
+    display: none;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .video-container {
@@ -281,4 +294,39 @@ button:hover {
     color: white;
     z-index: 1;
     font-size: 14px;
+}
+
+.waiting-status {
+    text-align: center;
+    margin: 20px 0;
+    padding: 20px;
+    background: rgba(255, 165, 0, 0.1);
+    border: 1px solid rgba(255, 165, 0, 0.3);
+    border-radius: 10px;
+}
+
+
+
+.waiting-status p {
+    margin: 10px 0;
+    font-size: 16px;
+}
+
+#queue-position {
+    font-size: 24px;
+    font-weight: bold;
+    color: #FF9800;
+}
+
+#next-patient-btn {
+    background: #FF9800;
+}
+
+#next-patient-btn:hover {
+    background: #F57C00;
+    box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
+}
+
+#next-patient-btn.show {
+    display: flex;
 } 
