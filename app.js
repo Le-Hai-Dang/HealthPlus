@@ -115,6 +115,7 @@ async function initializePeer() {
         
         try {
             if (isAdmin) {
+                console.log('Admin nhận cuộc gọi mới');
                 if (currentCall) {
                     console.log('Đã có cuộc gọi, thêm vào hàng đợi:', call.peer);
                     waitingQueue.push(call.peer);
@@ -129,32 +130,35 @@ async function initializePeer() {
                     showNextPatientButton();
                     return;
                 }
-                console.log('Admin nhận cuộc gọi mới');
                 currentUserId = call.peer;
             }
 
             // Khởi tạo stream mới
-            localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-            
-            console.log('Đã có local stream, hiển thị video local');
-            const localVideo = document.getElementById('local-video');
-            
-            // Đợi video element sẵn sàng
-            await new Promise(resolve => {
-                localVideo.onloadedmetadata = resolve;
+            if (!localStream) {
+                localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+                
+                console.log('Đã có local stream, hiển thị video local');
+                const localVideo = document.getElementById('local-video');
                 localVideo.srcObject = localStream;
-            });
+                await localVideo.play().catch(e => console.error('Lỗi khi play local video:', e));
+            }
 
-            await localVideo.play();
-            console.log('Local video đang phát');
-
-            // Trả lời cuộc gọi
+            console.log('Trả lời cuộc gọi với local stream');
             call.answer(localStream);
             
-            // Xử lý remote stream
             call.on('stream', (remoteStream) => {
                 console.log('Nhận được remote stream');
                 handleRemoteStream(remoteStream, call.peer);
+            });
+
+            call.on('error', (err) => {
+                console.error('Lỗi cuộc gọi:', err);
+                endCall();
+            });
+
+            call.on('close', () => {
+                console.log('Cuộc gọi đã kết thúc');
+                endCall(); 
             });
 
             currentCall = call;
