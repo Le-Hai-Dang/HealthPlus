@@ -39,15 +39,17 @@ const ICE_SERVERS = {
 
 const mediaConstraints = {
     video: {
-        width: { min: 320, ideal: 640, max: 854 },
-        height: { min: 240, ideal: 480, max: 480 },
-        frameRate: { min: 10, ideal: 15, max: 24 },
+        width: { min: 320, ideal: 320, max: 480 },
+        height: { min: 240, ideal: 240, max: 360 },
+        frameRate: { min: 8, ideal: 12, max: 15 },
         facingMode: 'user'
     },
     audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true
+        autoGainControl: true,
+        sampleRate: 22050,
+        channelCount: 1
     }
 };
 
@@ -65,7 +67,12 @@ async function initializePeer() {
         port: 443,
         secure: true,
         debug: 3,
-        config: ICE_SERVERS,
+        config: {
+            ...ICE_SERVERS,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            iceTransportPolicy: 'relay' // Ưu tiên TURN server để ổn định hơn
+        },
         reconnectTimer: 1000,
         retries: 3
     };
@@ -256,14 +263,25 @@ function handleCall(call) {
     currentCall = call;
     let streamProcessing = false;
 
-    // Theo dõi trạng thái kết nối ICE
+    // Theo dõi trạng thái kết nối ICE và băng thông
     call.peerConnection.oniceconnectionstatechange = () => {
         const state = call.peerConnection.iceConnectionState;
         console.log('Trạng thái ICE:', state);
         
+        if (state === 'connected') {
+            // Giảm bitrate khi kết nối được thiết lập
+            const sender = call.peerConnection.getSenders()[0];
+            if (sender && sender.getParameters) {
+                const params = sender.getParameters();
+                if (params.encodings && params.encodings.length > 0) {
+                    params.encodings[0].maxBitrate = 500000; // 500kbps
+                    sender.setParameters(params);
+                }
+            }
+        }
+        
         if (state === 'failed' || state === 'disconnected') {
             console.log('Kết nối ICE thất bại hoặc bị ngắt');
-            // Thử kết nối lại
             setTimeout(() => {
                 if (call.peerConnection) {
                     call.peerConnection.restartIce();
@@ -272,10 +290,8 @@ function handleCall(call) {
         }
     };
 
-    // Xử lý remote stream
+    // Xử lý remote stream với độ ưu tiên cho audio
     call.on('stream', async (remoteStream) => {
-        console.log('Nhận được remote stream');
-        
         if (streamProcessing) return;
         streamProcessing = true;
         
@@ -283,23 +299,25 @@ function handleCall(call) {
             const remoteVideo = document.getElementById('remote-video');
             remoteVideo.srcObject = remoteStream;
             
-            // Play video ngay không đợi metadata
-            try {
-                await remoteVideo.play();
-                console.log('Remote video đang phát');
-            } catch (playError) {
-                console.warn('Lỗi khi play video:', playError);
-                // Thử play lại khi user tương tác
-                document.addEventListener('click', () => {
-                    remoteVideo.play().catch(console.error);
-                }, { once: true });
-            }
+            // Ưu tiên audio
+            const audioTracks = remoteStream.getAudioTracks();
+            audioTracks.forEach(track => track.enabled = true);
             
-            // Cập nhật UI
-            document.getElementById('setup-box').classList.add('hidden');
-            document.getElementById('call-box').classList.remove('hidden');
-            updateControlButtons();
-            
+            // Giảm chất lượng video khi cần
+            const videoTracks = remoteStream.getVideoTracks();
+            videoTracks.forEach(track => {
+                track.contentHint = 'motion';
+                const capabilities = track.getCapabilities();
+                if (capabilities.frameRate) {
+                    track.applyConstraints({
+                        frameRate: 12,
+                        width: 320,
+                        height: 240
+                    });
+                }
+            });
+
+            await remoteVideo.play();
         } catch (err) {
             console.error('Lỗi xử lý remote stream:', err);
         } finally {
