@@ -168,26 +168,18 @@ async function connectToPeer(peerId) {
 function handleCall(call) {
     currentCall = call;
     
-    // Xử lý remote stream
     call.on('stream', async (remoteStream) => {
         console.log('Nhận được remote stream');
         try {
-            const remoteVideo = document.getElementById('remote-video');
+            // Khởi tạo local stream cho admin nếu chưa có
+            if (isAdmin && !localStream) {
+                localStream = await initializeStream();
+                call.answer(localStream);
+            }
             
-            // Cấu hình video element
-            remoteVideo.autoplay = true;
-            remoteVideo.playsInline = true;
-            remoteVideo.muted = false;
+            // Xử lý remote audio
+            handleRemoteAudioOnly(remoteStream, call.peer);
             
-            // Set stream mới
-            remoteVideo.srcObject = remoteStream;
-            await remoteVideo.play().catch(async (err) => {
-                console.warn('Lỗi khi play video:', err);
-                // Thử lại sau 1s
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                await remoteVideo.play();
-            });
-
             // Cập nhật UI
             document.getElementById('setup-box').classList.add('hidden');
             document.getElementById('call-box').classList.remove('hidden');
@@ -198,16 +190,11 @@ function handleCall(call) {
         }
     });
 
-    // Theo dõi kết nối ICE
-    call.peerConnection.oniceconnectionstatechange = () => {
-        const state = call.peerConnection.iceConnectionState;
-        console.log('Trạng thái ICE:', state);
-        
-        if (state === 'failed' || state === 'disconnected') {
-            console.log('Kết nối ICE thất bại hoặc bị ngắt');
-            call.peerConnection.restartIce();
-        }
-    };
+    // Xử lý lỗi cuộc gọi
+    call.on('error', (err) => {
+        console.error('Lỗi cuộc gọi:', err);
+        endCall();
+    });
 }
 
 function toggleCamera() {
@@ -724,28 +711,37 @@ async function getLocalStreamWithRetry(maxRetries = 3) {
 
 async function initializeStream() {
     try {
-        // Kiểm tra quyền truy cập microphone trước
+        // Kiểm tra quyền truy cập microphone
         const permissions = await navigator.mediaDevices.getUserMedia({ audio: true });
         permissions.getTracks().forEach(track => track.stop());
 
-        // Sau khi có quyền, khởi tạo stream với cấu hình tối ưu
+        // Cấu hình audio cho cả admin và user
+        const audioConfig = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 44100,
+            channelCount: 1,
+            latency: 0,
+            volume: 1.0
+        };
+
+        // Khởi tạo stream
         const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 44100, // Giảm sample rate
-                channelCount: 1,
-                volume: 1.0
-            }
+            audio: audioConfig
         });
 
         // Kiểm tra stream
-        if (!stream || !stream.getAudioTracks().length) {
+        const audioTracks = stream.getAudioTracks();
+        if (!audioTracks.length) {
             throw new Error('Không thể khởi tạo audio stream');
         }
 
+        // Bật mic mặc định
+        audioTracks[0].enabled = true;
+        
         return stream;
+
     } catch (err) {
         console.error('Lỗi khởi tạo audio stream:', err);
         if (err.name === 'NotAllowedError') {
