@@ -58,9 +58,11 @@ const adminMediaConstraints = {
 };
 
 async function initializePeer() {
-    console.log("Initializing peer...");
+    console.log("[DEBUG] Bắt đầu khởi tạo peer...");
+    console.log("[DEBUG] isAdmin:", isAdmin);
     
     if (peer && !peer.destroyed) {
+        console.log("[DEBUG] Hủy peer cũ");
         peer.destroy();
     }
     
@@ -76,15 +78,18 @@ async function initializePeer() {
     try {
         // Tạo peer mới với ID cố định cho admin
         if (isAdmin) {
+            console.log("[DEBUG] Tạo peer cho admin với ID: doctor123");
             peer = new Peer('doctor123', peerConfig);
         } else {
+            console.log("[DEBUG] Tạo peer cho user thường");
             peer = new Peer(peerConfig);
         }
 
-        // Xử lý sự kiện mở kết nối
         peer.on('open', (id) => {
-            console.log('Peer ID của tôi là:', id);
+            console.log('[DEBUG] Peer mở kết nối thành công với ID:', id);
+            console.log('[DEBUG] Trạng thái kết nối:', peer.connected);
             if (isAdmin) {
+                console.log('[DEBUG] Cập nhật admin ID');
                 adminPeerId = id;
                 const adminIdElement = document.getElementById('admin-id');
                 if (adminIdElement) {
@@ -93,44 +98,39 @@ async function initializePeer() {
             }
         });
 
-        // Xử lý lỗi
         peer.on('error', (error) => {
-            console.error('Lỗi PeerJS:', error);
-            if (error.type === 'unavailable-id') {
-                console.log('ID bác sĩ đã được sử dụng, thử lại sau 5s');
-                setTimeout(initializePeer, 5000);
-            }
+            console.error('[DEBUG] Lỗi PeerJS:', error.type);
+            console.error('[DEBUG] Chi tiết lỗi:', error);
         });
 
-        // Xử lý ngắt kết nối
         peer.on('disconnected', () => {
-            console.log('Mất kết nối với server');
-            setTimeout(() => {
-                if (!peer.destroyed) {
-                    peer.reconnect();
-                }
-            }, 1000);
+            console.log('[DEBUG] Peer bị ngắt kết nối');
+            console.log('[DEBUG] Trạng thái destroyed:', peer.destroyed);
+            console.log('[DEBUG] Trạng thái disconnected:', peer.disconnected);
         });
 
-        // Đợi kết nối với timeout ngắn hơn
+        peer.on('connection', (conn) => {
+            console.log('[DEBUG] Có kết nối mới từ:', conn.peer);
+        });
+
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                if (peer.disconnected) {
-                    peer.reconnect();
-                }
-                resolve(); // Vẫn resolve để tiếp tục
+                console.log('[DEBUG] Timeout kết nối, kiểm tra trạng thái');
+                console.log('[DEBUG] Peer connected:', peer.connected);
+                console.log('[DEBUG] Peer disconnected:', peer.disconnected);
+                resolve();
             }, 5000);
 
             peer.on('open', () => {
+                console.log('[DEBUG] Kết nối thành công trong timeout');
                 clearTimeout(timeout);
                 resolve();
             });
         });
 
     } catch (err) {
-        console.error('Lỗi khởi tạo peer:', err);
-        // Thử lại sau 5s
-        setTimeout(initializePeer, 5000);
+        console.error('[DEBUG] Lỗi trong initializePeer:', err);
+        throw err;
     }
 }
 
@@ -772,27 +772,32 @@ async function checkAudioDevices() {
 }
 
 peer.on('call', async (call) => {
-    console.log('Có cuộc gọi đến từ:', call.peer);
+    console.log('[DEBUG] Nhận cuộc gọi từ:', call.peer);
+    console.log('[DEBUG] isAdmin:', isAdmin);
+    console.log('[DEBUG] Trạng thái localStream:', localStream ? 'đã có' : 'chưa có');
     
     try {
         if (isAdmin) {
-            // Khởi tạo stream cho admin nếu chưa có
+            console.log('[DEBUG] Xử lý cuộc gọi cho admin');
             if (!localStream) {
+                console.log('[DEBUG] Khởi tạo stream mới cho admin');
                 localStream = await initializeStream();
+                console.log('[DEBUG] Stream đã được khởi tạo:', localStream.getTracks().length, 'tracks');
             }
             
-            // Trả lời cuộc gọi với stream
+            console.log('[DEBUG] Trả lời cuộc gọi với stream');
             call.answer(localStream);
             
             call.on('stream', (remoteStream) => {
-                console.log('Admin nhận được remote stream');
+                console.log('[DEBUG] Admin nhận được remote stream');
+                console.log('[DEBUG] Remote stream tracks:', remoteStream.getTracks().length);
                 handleRemoteAudioOnly(remoteStream, call.peer);
             });
             
             currentCall = call;
         }
     } catch (err) {
-        console.error('Lỗi xử lý cuộc gọi:', err);
+        console.error('[DEBUG] Lỗi xử lý cuộc gọi:', err);
         call.close();
     }
 });
