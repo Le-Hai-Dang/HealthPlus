@@ -31,6 +31,18 @@ const ICE_SERVERS = {
 };
 
 const mediaConstraints = {
+    video: false,
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 22050,
+        channelCount: 1
+    }
+};
+
+// Thêm constraints riêng cho admin
+const adminMediaConstraints = {
     video: {
         width: { ideal: 640 },
         height: { ideal: 480 },
@@ -438,29 +450,19 @@ async function quickConnect() {
                 await initializePeer();
             }
             
+            // User chỉ cần audio stream
             localStream = await navigator.mediaDevices.getUserMedia({
-                video: true,
+                video: false,
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: true,
+                    sampleRate: 22050,
+                    channelCount: 1
                 }
             });
             
-            document.getElementById('local-video').srcObject = localStream;
             const call = peer.call(adminId, localStream);
-            
-            // Xử lý khi cuộc gọi bị đóng ngay lập tức (do bác sĩ đang bận)
-            call.on('close', () => {
-                if (!document.getElementById('waiting-box').classList.contains('hidden')) {
-                    // Nếu đang ở trạng thái chờ thì không làm gì
-                    return;
-                }
-                // Nếu không phải do waiting box, reset lại giao diện
-                document.getElementById('local-video').srcObject = null;
-                localStream.getTracks().forEach(track => track.stop());
-            });
-
             handleCall(call);
         } catch (err) {
             console.error('Lỗi khi kết nối:', err);
@@ -469,8 +471,6 @@ async function quickConnect() {
                 localStream.getTracks().forEach(track => track.stop());
             }
         }
-    } else {
-        alert('Không tìm thấy bác sĩ trực tuyến, vui lòng thử lại sau');
     }
 }
 
@@ -679,34 +679,29 @@ async function nextPatient() {
 // Thêm hàm mới để xử lý việc bắt đầu cuộc gọi mới
 async function startNewCall(peerId, conn) {
     try {
-        // Dọn dẹp tài nguyên cũ
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
             localStream = null;
         }
 
-        // Khởi tạo stream mới
-        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        // Admin sử dụng constraints có video
+        localStream = await navigator.mediaDevices.getUserMedia(adminMediaConstraints);
         
-        // Hiển thị local video
         const localVideo = document.getElementById('local-video');
         localVideo.srcObject = localStream;
         await localVideo.play();
 
-        // Thông báo cho user được gọi
         if (conn) {
             conn.send({ type: 'called' });
         }
 
-        // Tạo cuộc gọi mới
         if (peer && peer.connected) {
             console.log('Bắt đầu gọi tới:', peerId);
             const call = peer.call(peerId, localStream);
             
-            // Xử lý stream từ người được gọi
             call.on('stream', (remoteStream) => {
-                console.log('Nhận được remote stream');
-                handleRemoteStream(remoteStream, peerId);
+                // Admin chỉ cần xử lý audio từ user
+                handleRemoteAudioOnly(remoteStream, peerId);
             });
 
             currentCall = call;
@@ -768,6 +763,24 @@ async function handleRemoteStream(remoteStream, peerId) {
 
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
+    }
+}
+
+function handleRemoteAudioOnly(remoteStream, peerId) {
+    console.log('Xử lý remote audio từ:', peerId);
+    
+    try {
+        const audioElement = new Audio();
+        audioElement.srcObject = remoteStream;
+        audioElement.play();
+
+        // Cập nhật UI
+        document.getElementById('setup-box').classList.add('hidden');
+        document.getElementById('call-box').classList.remove('hidden');
+        updateControlButtons();
+        showNextPatientButton();
+    } catch (err) {
+        console.error('Lỗi xử lý remote audio:', err);
     }
 }
 
