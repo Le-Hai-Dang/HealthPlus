@@ -21,9 +21,10 @@ const ICE_SERVERS = {
     'iceServers': [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
         {
             urls: 'turn:a.relay.metered.ca:80',
-            username: 'e8c7e8e14b95e7e12d6f7592',  // Thay bằng credentials thực
+            username: 'e8c7e8e14b95e7e12d6f7592',
             credential: 'UAK0JrYJxNgA5cZe'
         },
         {
@@ -33,7 +34,7 @@ const ICE_SERVERS = {
         }
     ],
     iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'relay' // Bắt buộc sử dụng TURN server
+    iceTransportPolicy: 'all' // Cho phép sử dụng cả STUN và TURN
 };
 
 const mediaConstraints = {
@@ -262,7 +263,12 @@ function handleCall(call) {
         
         if (state === 'failed' || state === 'disconnected') {
             console.log('Kết nối ICE thất bại hoặc bị ngắt');
-            call.peerConnection.restartIce();
+            // Thử kết nối lại
+            setTimeout(() => {
+                if (call.peerConnection) {
+                    call.peerConnection.restartIce();
+                }
+            }, 1000);
         }
     };
 
@@ -270,60 +276,36 @@ function handleCall(call) {
     call.on('stream', async (remoteStream) => {
         console.log('Nhận được remote stream');
         
-        // Tránh xử lý đồng thời nhiều stream
-        if (streamProcessing) {
-            console.log('Đang xử lý stream khác, bỏ qua');
-            return;
-        }
-        
+        if (streamProcessing) return;
         streamProcessing = true;
         
         try {
             const remoteVideo = document.getElementById('remote-video');
-            
-            // Dọn dẹp stream cũ
-            if (remoteVideo.srcObject) {
-                const oldStream = remoteVideo.srcObject;
-                remoteVideo.srcObject = null;
-                oldStream.getTracks().forEach(track => track.stop());
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            // Thiết lập stream mới
             remoteVideo.srcObject = remoteStream;
             
-            // Đợi video load xong
-            await new Promise(resolve => {
-                remoteVideo.onloadedmetadata = resolve;
-            });
+            // Play video ngay không đợi metadata
+            try {
+                await remoteVideo.play();
+                console.log('Remote video đang phát');
+            } catch (playError) {
+                console.warn('Lỗi khi play video:', playError);
+                // Thử play lại khi user tương tác
+                document.addEventListener('click', () => {
+                    remoteVideo.play().catch(console.error);
+                }, { once: true });
+            }
             
-            // Play video
-            await remoteVideo.play();
-            console.log('Remote video đang phát');
+            // Cập nhật UI
+            document.getElementById('setup-box').classList.add('hidden');
+            document.getElementById('call-box').classList.remove('hidden');
+            updateControlButtons();
             
         } catch (err) {
-            console.error('Lỗi khi xử lý remote stream:', err);
-            
-            // Thử lại sau 1 giây nếu lỗi
-            setTimeout(async () => {
-                try {
-                    const remoteVideo = document.getElementById('remote-video');
-                    await remoteVideo.play();
-                    console.log('Remote video phát thành công sau khi thử lại');
-                } catch (retryErr) {
-                    console.error('Không thể phát video sau khi thử lại:', retryErr);
-                }
-            }, 1000);
-            
+            console.error('Lỗi xử lý remote stream:', err);
         } finally {
             streamProcessing = false;
         }
     });
-
-    // Cập nhật UI
-    document.getElementById('setup-box').classList.add('hidden');
-    document.getElementById('call-box').classList.remove('hidden');
-    updateControlButtons();
 }
 
 function toggleCamera() {
