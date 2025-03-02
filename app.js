@@ -21,11 +21,9 @@ const ICE_SERVERS = {
     'iceServers': [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        {
-            urls: 'turn:a.relay.metered.ca:443',
-            username: 'e8c7e8e14b95e7e12d6f7592',
-            credential: 'UAK0JrYJxNgA5cZe'
-        }
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
     ],
     iceCandidatePoolSize: 10,
     iceTransportPolicy: 'all'
@@ -57,7 +55,7 @@ async function initializePeer() {
     }
     
     const peerConfig = {
-        host: '0.peerjs.com',
+        host: 'free-peerjs-server.herokuapp.com', // Server PeerJS miễn phí
         port: 443,
         secure: true,
         debug: 3,
@@ -128,12 +126,7 @@ async function initializePeer() {
             
             // Handle remote stream
             call.on('stream', (remoteStream) => {
-                const remoteVideo = document.getElementById('remote-video');
-                remoteVideo.srcObject = remoteStream;
-                remoteVideo.play().catch(console.warn);
-                
-                document.getElementById('setup-box').classList.add('hidden');
-                document.getElementById('call-box').classList.remove('hidden');
+                handleRemoteStream(remoteStream, call.peer);
             });
 
             // Handle call close
@@ -668,6 +661,8 @@ async function startNewCall(peerId, conn) {
 
 async function handleRemoteStream(remoteStream, peerId) {
     console.log('Xử lý remote stream từ:', peerId);
+    console.log('Video tracks:', remoteStream.getVideoTracks().length);
+    console.log('Audio tracks:', remoteStream.getAudioTracks().length);
     
     try {
         const remoteVideo = document.getElementById('remote-video');
@@ -687,7 +682,6 @@ async function handleRemoteStream(remoteStream, peerId) {
             console.log('Remote video đang phát');
         } catch (playError) {
             console.warn('Lỗi khi play video:', playError);
-            // Thử play khi user tương tác
             document.addEventListener('click', () => {
                 remoteVideo.play().catch(console.error);
             }, { once: true });
