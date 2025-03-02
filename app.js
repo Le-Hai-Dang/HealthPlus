@@ -60,8 +60,9 @@ const adminMediaConstraints = {
 async function initializePeer() {
     console.log("Initializing peer...");
     
-    if (peer && !peer.destroyed) {
-        peer.disconnect();
+    // Hủy peer cũ nếu có
+    if (peer) {
+        peer.destroy();
     }
     
     const peerConfig = {
@@ -74,40 +75,55 @@ async function initializePeer() {
     };
 
     try {
-        peer = new Peer(isAdmin ? ADMIN_CREDENTIALS.peerId : null, peerConfig);
-        
+        // Tạo peer mới với ID cố định cho admin
+        if (isAdmin) {
+            peer = new Peer('doctor123', peerConfig);
+        } else {
+            peer = new Peer(peerConfig); // User thường dùng random ID
+        }
+
+        // Xử lý sự kiện mở kết nối
         peer.on('open', (id) => {
             console.log('Peer ID của tôi là:', id);
             if (isAdmin) {
                 adminPeerId = id;
+                document.getElementById('admin-id').textContent = id;
             }
         });
 
+        // Xử lý lỗi
         peer.on('error', (error) => {
             console.error('Lỗi PeerJS:', error);
+            if (error.type === 'unavailable-id') {
+                alert('ID bác sĩ đã được sử dụng, vui lòng thử lại sau');
+                peer.destroy();
+                setTimeout(initializePeer, 5000);
+                return;
+            }
             if (error.type === 'peer-unavailable') {
                 alert('Không tìm thấy người dùng này');
                 return;
             }
         });
 
+        // Xử lý ngắt kết nối
         peer.on('disconnected', () => {
             console.log('Mất kết nối với server');
-            setTimeout(() => {
-                if (!peer.destroyed) {
-                    peer.reconnect();
-                }
-            }, 3000);
+            if (!peer.destroyed) {
+                peer.reconnect();
+            }
         });
 
+        // Đợi kết nối thành công
         await new Promise((resolve, reject) => {
-            peer.on('open', resolve);
-            peer.on('error', reject);
-            
-            // Timeout sau 10 giây
-            setTimeout(() => {
+            const timeout = setTimeout(() => {
                 reject(new Error('Timeout kết nối'));
             }, 10000);
+
+            peer.on('open', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
         });
 
     } catch (err) {
