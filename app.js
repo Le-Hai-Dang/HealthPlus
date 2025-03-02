@@ -19,19 +19,16 @@ let adminPeerId = null;
 // Thêm các STUN/TURN servers bổ sung
 const ICE_SERVERS = {
     'iceServers': [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
         {
             urls: 'turn:a.relay.metered.ca:443',
-            username: 'e8c7e8e14b95e7e12d6f7592', 
-            credential: 'UAK0JrYJxNgA5cZe'
-        },
-        {
-            urls: 'turn:a.relay.metered.ca:80',
             username: 'e8c7e8e14b95e7e12d6f7592',
             credential: 'UAK0JrYJxNgA5cZe'
-        },
-        { urls: 'stun:stun.l.google.com:19302' }
+        }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all'
 };
 
 const mediaConstraints = {
@@ -208,22 +205,21 @@ async function connectToPeer(peerId) {
     }
 
     try {
-        // Dọn dẹp stream cũ
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-            localStream = null;
-        }
-
         // Khởi tạo stream mới
         localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         
         // Hiển thị local video
         const localVideo = document.getElementById('local-video');
         localVideo.srcObject = localStream;
-        await localVideo.play();
+        try {
+            await localVideo.play();
+        } catch (e) {
+            console.warn('Lỗi khi play local video:', e);
+        }
 
+        // Kiểm tra kết nối
         if (!peer || !peer.connected) {
-            throw new Error('Chưa kết nối tới server');
+            await initializePeer();
         }
 
         console.log('Bắt đầu gọi tới:', peerId);
@@ -232,19 +228,13 @@ async function connectToPeer(peerId) {
         // Xử lý stream từ người được gọi
         call.on('stream', (remoteStream) => {
             console.log('Nhận được remote stream');
-            handleRemoteStream(remoteStream, peerId);
-        });
-
-        // Xử lý lỗi
-        call.on('error', (err) => {
-            console.error('Lỗi cuộc gọi:', err);
-            endCall();
-        });
-
-        // Xử lý đóng cuộc gọi
-        call.on('close', () => {
-            console.log('Cuộc gọi đã kết thúc');
-            endCall();
+            const remoteVideo = document.getElementById('remote-video');
+            remoteVideo.srcObject = remoteStream;
+            remoteVideo.play().catch(console.error);
+            
+            // Cập nhật UI
+            document.getElementById('setup-box').classList.add('hidden');
+            document.getElementById('call-box').classList.remove('hidden');
         });
 
         currentCall = call;
