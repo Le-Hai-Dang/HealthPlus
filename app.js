@@ -370,28 +370,6 @@ function endCall() {
         window.currentAudio = null;
     }
 
-    if (localStream) {
-        localStream.getTracks().forEach(track => {
-            track.stop();
-            localStream.removeTrack(track);
-        });
-        localStream = null;
-    }
-    
-    const localVideo = document.getElementById('local-video');
-    const remoteVideo = document.getElementById('remote-video');
-    
-    if (localVideo.srcObject) {
-        localVideo.srcObject = null;
-        localVideo.load();
-    }
-    
-    if (remoteVideo.srcObject) {
-        remoteVideo.srcObject = null;
-        remoteVideo.load();
-    }
-    
-    currentUserId = null;
     document.getElementById('call-box').classList.add('hidden');
     document.getElementById('setup-box').classList.remove('hidden');
     document.querySelector('.status-dot').classList.remove('active');
@@ -823,21 +801,22 @@ function returnToClinic() {
 
 // Thêm hàm mới để cập nhật hiển thị các nút điều khiển
 function updateControlButtons() {
-    const endCallBtn = document.getElementById('end-call-btn');
-    const nextPatientBtn = document.getElementById('next-patient-btn');
-    
-    if (isAdmin) {
-        endCallBtn.classList.remove('hidden');
-        // Chỉ hiện nút next nếu có người trong hàng đợi
-        if (waitingQueue.length > 0) {
-            nextPatientBtn.classList.remove('hidden');
-            nextPatientBtn.textContent = `Bệnh nhân tiếp theo (${waitingQueue.length})`;
-        } else {
-            nextPatientBtn.classList.add('hidden');
+    try {
+        const callBox = document.getElementById('call-box');
+        if (!callBox) return;
+
+        const micBtn = document.getElementById('mic-btn');
+        const endCallBtn = document.getElementById('end-call-btn');
+        
+        if (micBtn) {
+            micBtn.textContent = isMicOn ? 'Tắt mic' : 'Bật mic';
         }
-    } else {
-        endCallBtn.classList.add('hidden');
-        nextPatientBtn.classList.add('hidden');
+        
+        if (endCallBtn) {
+            endCallBtn.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Lỗi cập nhật nút điều khiển:', err);
     }
 }
 
