@@ -19,22 +19,19 @@ let adminPeerId = null;
 // Thêm các STUN/TURN servers bổ sung
 const ICE_SERVERS = {
     'iceServers': [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
+        {
+            urls: 'turn:a.relay.metered.ca:443',
+            username: 'e8c7e8e14b95e7e12d6f7592', 
+            credential: 'UAK0JrYJxNgA5cZe'
+        },
         {
             urls: 'turn:a.relay.metered.ca:80',
             username: 'e8c7e8e14b95e7e12d6f7592',
             credential: 'UAK0JrYJxNgA5cZe'
         },
-        {
-            urls: 'turn:a.relay.metered.ca:443',
-            username: 'e8c7e8e14b95e7e12d6f7592',
-            credential: 'UAK0JrYJxNgA5cZe'
-        }
+        { urls: 'stun:stun.l.google.com:19302' }
     ],
-    iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'all' // Cho phép sử dụng cả STUN và TURN
+    iceCandidatePoolSize: 10
 };
 
 const mediaConstraints = {
@@ -261,69 +258,52 @@ async function connectToPeer(peerId) {
 
 function handleCall(call) {
     currentCall = call;
-    let streamProcessing = false;
+    
+    // Xử lý remote stream
+    call.on('stream', async (remoteStream) => {
+        try {
+            const remoteVideo = document.getElementById('remote-video');
+            if (!remoteVideo) {
+                throw new Error('Không tìm thấy remote-video element');
+            }
 
-    // Theo dõi trạng thái kết nối ICE và băng thông
+            // Cấu hình video element
+            remoteVideo.autoplay = true;
+            remoteVideo.playsInline = true;
+            remoteVideo.muted = false;
+            remoteVideo.srcObject = remoteStream;
+
+            // Play video
+            try {
+                await remoteVideo.play();
+                console.log('Remote video đang phát');
+            } catch (playError) {
+                console.error('Lỗi khi play video:', playError);
+                document.addEventListener('click', () => {
+                    remoteVideo.play().catch(console.error);
+                }, { once: true });
+            }
+
+            // Cập nhật UI
+            document.getElementById('setup-box').classList.add('hidden');
+            document.getElementById('call-box').classList.remove('hidden');
+            updateControlButtons();
+
+        } catch (err) {
+            console.error('Lỗi xử lý remote stream:', err);
+        }
+    });
+
+    // Xử lý ICE connection
     call.peerConnection.oniceconnectionstatechange = () => {
         const state = call.peerConnection.iceConnectionState;
         console.log('Trạng thái ICE:', state);
         
-        if (state === 'connected') {
-            // Giảm bitrate khi kết nối được thiết lập
-            const sender = call.peerConnection.getSenders()[0];
-            if (sender && sender.getParameters) {
-                const params = sender.getParameters();
-                if (params.encodings && params.encodings.length > 0) {
-                    params.encodings[0].maxBitrate = 500000; // 500kbps
-                    sender.setParameters(params);
-                }
-            }
-        }
-        
         if (state === 'failed' || state === 'disconnected') {
             console.log('Kết nối ICE thất bại hoặc bị ngắt');
-            setTimeout(() => {
-                if (call.peerConnection) {
-                    call.peerConnection.restartIce();
-                }
-            }, 1000);
+            call.peerConnection.restartIce();
         }
     };
-
-    // Xử lý remote stream với độ ưu tiên cho audio
-    call.on('stream', async (remoteStream) => {
-        if (streamProcessing) return;
-        streamProcessing = true;
-        
-        try {
-            const remoteVideo = document.getElementById('remote-video');
-            remoteVideo.srcObject = remoteStream;
-            
-            // Ưu tiên audio
-            const audioTracks = remoteStream.getAudioTracks();
-            audioTracks.forEach(track => track.enabled = true);
-            
-            // Giảm chất lượng video khi cần
-            const videoTracks = remoteStream.getVideoTracks();
-            videoTracks.forEach(track => {
-                track.contentHint = 'motion';
-                const capabilities = track.getCapabilities();
-                if (capabilities.frameRate) {
-                    track.applyConstraints({
-                        frameRate: 12,
-                        width: 320,
-                        height: 240
-                    });
-                }
-            });
-
-            await remoteVideo.play();
-        } catch (err) {
-            console.error('Lỗi xử lý remote stream:', err);
-        } finally {
-            streamProcessing = false;
-        }
-    });
 }
 
 function toggleCamera() {
