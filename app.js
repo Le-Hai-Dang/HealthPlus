@@ -160,29 +160,15 @@ async function initializePeer() {
 
             // Khởi tạo stream mới
             if (!localStream) {
-                localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-                
-                console.log('Đã có local stream, hiển thị video local');
-                const localVideo = document.getElementById('local-video');
-                localVideo.srcObject = localStream;
-                await localVideo.play().catch(e => console.error('Lỗi khi play local video:', e));
+                localStream = await initializeStream();
             }
 
-            console.log('Trả lời cuộc gọi với local stream');
+            console.log('Trả lời cuộc gọi với audio stream');
             call.answer(localStream);
             
-            const connectTimeout = setTimeout(() => {
-                if (!currentCall) {
-                    console.log('Timeout kết nối');
-                    alert('Không thể kết nối, vui lòng thử lại');
-                    endCall();
-                }
-            }, 30000);
-
             call.on('stream', (remoteStream) => {
-                clearTimeout(connectTimeout);
                 console.log('Nhận được remote stream');
-                handleRemoteStream(remoteStream, call.peer);
+                handleRemoteAudioOnly(remoteStream, call.peer);
             });
 
             call.on('error', (err) => {
@@ -192,15 +178,14 @@ async function initializePeer() {
 
             call.on('close', () => {
                 console.log('Cuộc gọi đã kết thúc');
-                endCall(); 
+                endCall();
             });
 
             currentCall = call;
 
         } catch (err) {
-            console.error('Lỗi khi xử lý cuộc gọi đến:', err);
+            console.error('Lỗi khi xử lý cuộc gọi:', err);
             call.close();
-            alert('Không thể truy cập camera hoặc microphone: ' + err.message);
         }
     });
 
@@ -754,46 +739,34 @@ async function handleRemoteStream(remoteStream, peerId) {
     }
 }
 
-async function handleRemoteAudioOnly(remoteStream, peerId) {
+function handleRemoteAudioOnly(remoteStream, peerId) {
     console.log('Xử lý remote audio từ:', peerId);
     
     try {
-        // Dọn dẹp audio cũ nếu có
         if (window.currentAudio) {
             window.currentAudio.pause();
             window.currentAudio.srcObject = null;
         }
 
         const audioElement = new Audio();
-        audioElement.srcObject = remoteStream;
         audioElement.autoplay = true;
+        audioElement.srcObject = remoteStream;
         
-        // Tối ưu audio
-        audioElement.volume = 1.0;
-        
-        // Hiển thị UI cuộc gọi
+        // Cập nhật UI
         document.getElementById('setup-box').classList.add('hidden');
         document.getElementById('waiting-box').classList.add('hidden');
         document.getElementById('call-box').classList.remove('hidden');
         
-        const statusText = document.querySelector('.status-text');
         const statusDot = document.querySelector('.status-dot');
+        const statusText = document.querySelector('.status-text');
         
-        if (statusText && statusDot) {
-            statusText.textContent = 'Đang trong cuộc gọi';
+        if (statusDot && statusText) {
             statusDot.classList.add('active');
+            statusText.textContent = 'Đang trong cuộc gọi';
         }
-        
-        // Lưu audio element
+
         window.currentAudio = audioElement;
         
-        // Xử lý khi kết thúc
-        audioElement.onended = () => {
-            endCall();
-        };
-
-        updateControlButtons();
-
     } catch (err) {
         console.error('Lỗi xử lý audio:', err);
     }
@@ -860,4 +833,24 @@ async function getLocalStreamWithRetry(maxRetries = 3) {
         }
     }
     throw lastError;
+}
+
+async function initializeStream() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+                channelCount: 1
+            }
+        });
+        
+        return stream;
+    } catch (err) {
+        console.error('Lỗi khởi tạo stream:', err);
+        throw err;
+    }
 }
