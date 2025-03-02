@@ -228,74 +228,56 @@ async function connectToPeer(peerId) {
 
 function handleCall(call) {
     currentCall = call;
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 3;
-    
+    let isStreamSet = false;
+
     // Theo dõi trạng thái kết nối ICE
     call.peerConnection.oniceconnectionstatechange = () => {
         const state = call.peerConnection.iceConnectionState;
         console.log('Trạng thái ICE:', state);
         
         if (state === 'failed' || state === 'disconnected') {
-            console.log(`Lần thử kết nối lại thứ ${reconnectAttempts + 1}`);
-            
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                reconnectAttempts++;
-                // Thử kết nối lại ngay lập tức
-                call.peerConnection.restartIce();
-                
-                // Kiểm tra sau 5 giây
-                setTimeout(() => {
-                    if (call.peerConnection.iceConnectionState !== 'connected') {
-                        if (reconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
-                            console.log('Đã hết số lần thử lại');
-                            endCall();
-                            if (!isAdmin) {
-                                setTimeout(quickConnect, 2000);
-                            }
-                        }
-                    }
-                }, 5000);
-            }
-        } else if (state === 'connected') {
-            console.log('Kết nối ICE thành công');
-            reconnectAttempts = 0;
+            console.log('Kết nối ICE thất bại hoặc bị ngắt');
+            // Thử kết nối lại ngay lập tức
+            call.peerConnection.restartIce();
         }
     };
 
-    // Xử lý remote stream với timeout
-    const streamTimeout = setTimeout(() => {
-        if (!document.getElementById('remote-video').srcObject) {
-            console.error('Không nhận được stream sau 10 giây');
-            endCall();
-        }
-    }, 10000);
-
+    // Xử lý remote stream với kiểm tra trùng lặp
     call.on('stream', (remoteStream) => {
-        clearTimeout(streamTimeout);
         console.log('Nhận được remote stream');
-        const remoteVideo = document.getElementById('remote-video');
+        if (isStreamSet) {
+            console.log('Stream đã được thiết lập, bỏ qua');
+            return;
+        }
         
-        try {
+        const remoteVideo = document.getElementById('remote-video');
+        if (remoteVideo.srcObject) {
+            console.log('Dọn dẹp stream cũ');
             remoteVideo.srcObject = null;
             remoteVideo.load();
+        }
+
+        // Đợi một chút trước khi set stream mới
+        setTimeout(() => {
             remoteVideo.srcObject = remoteStream;
             remoteVideo.play()
-                .then(() => console.log('Remote video đang phát'))
+                .then(() => {
+                    console.log('Remote video đang phát');
+                    isStreamSet = true;
+                })
                 .catch(e => {
                     console.error('Lỗi khi play remote video:', e);
-                    setTimeout(() => remoteVideo.play(), 1000);
+                    // Thử lại sau 1 giây nếu thất bại
+                    setTimeout(() => {
+                        remoteVideo.play()
+                            .then(() => {
+                                console.log('Remote video phát thành công sau khi thử lại');
+                                isStreamSet = true;
+                            })
+                            .catch(err => console.error('Vẫn không thể phát video:', err));
+                    }, 1000);
                 });
-        } catch (err) {
-            console.error('Lỗi khi xử lý remote stream:', err);
-        }
-    });
-
-    // Xử lý lỗi cuộc gọi
-    call.on('error', (err) => {
-        console.error('Lỗi trong cuộc gọi:', err);
-        clearTimeout(streamTimeout);
-        endCall();
+        }, 500);
     });
 
     // Cập nhật UI
