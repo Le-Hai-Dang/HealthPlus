@@ -60,10 +60,8 @@ const adminMediaConstraints = {
 async function initializePeer() {
     console.log("Initializing peer...");
     
-    // Đóng kết nối cũ nếu có
-    if (peer) {
-        peer.destroy();
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Đợi 1s để đảm bảo kết nối cũ đã đóng
+    if (peer && !peer.destroyed) {
+        peer.disconnect();
     }
     
     const peerConfig = {
@@ -72,208 +70,84 @@ async function initializePeer() {
         secure: true,
         path: '/',
         debug: 3,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                {
-                    urls: 'turn:a.relay.metered.ca:443',
-                    username: 'e8c7e8e14b95e7e12d6f7592',
-                    credential: 'UAK0JrYJxNgA5cZe'
-                }
-            ],
-            iceCandidatePoolSize: 10,
-            iceTransportPolicy: 'all'
-        }
+        config: ICE_SERVERS
     };
 
-    if (isAdmin) {
-        peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
-    } else {
-        peer = new Peer(peerConfig);
-    }
-
-    peer.on('open', (id) => {
-        console.log("Peer ID của tôi là:", id);
-        document.getElementById('my-peer-id').textContent = id;
-        peer.connected = true;
-        if (isAdmin) {
-            adminPeerId = id;
-            localStorage.setItem('adminPeerId', id);
-        }
-        updateControlButtons();
-    });
-
-    peer.on('error', (error) => {
-        console.error('Lỗi PeerJS:', error);
+    try {
+        peer = new Peer(isAdmin ? ADMIN_CREDENTIALS.peerId : null, peerConfig);
         
-        if (error.type === 'peer-unavailable') {
-            alert('Không tìm thấy người dùng này');
-            return;
-        }
-        
-        if (error.type === 'disconnected' || error.type === 'network') {
-            console.log('Đang thử kết nối lại...');
-            peer.reconnect();
-        } else {
-            // Khởi tạo lại peer sau 5 giây nếu có lỗi khác
-            setTimeout(() => {
-                initializePeer();
-            }, 5000);
-        }
-    });
-
-    peer.on('disconnected', () => {
-        console.log('Mất kết nối với server');
-        // Thử kết nối lại sau 5 giây
-        setTimeout(() => {
-            if (!peer.destroyed) {
-                peer.reconnect();
-            } else {
-                initializePeer();
-            }
-        }, 5000);
-    });
-
-    peer.on('call', async (call) => {
-        console.log('Có cuộc gọi đến từ:', call.peer);
-        
-        try {
+        peer.on('open', (id) => {
+            console.log('Peer ID của tôi là:', id);
             if (isAdmin) {
-                console.log('Admin nhận cuộc gọi mới');
-                if (currentCall) {
-                    console.log('Đã có cuộc gọi, thêm vào hàng đợi:', call.peer);
-                    waitingQueue.push(call.peer);
-                    const conn = peer.connect(call.peer);
-                    conn.on('open', () => {
-                        conn.send({
-                            type: 'waiting',
-                            position: waitingQueue.length
-                        });
-                    });
-                    call.close();
-                    showNextPatientButton();
-                    return;
-                }
-                currentUserId = call.peer;
-            }
-
-            // Khởi tạo stream mới
-            if (!localStream) {
-                localStream = await initializeStream();
-            }
-
-            console.log('Trả lời cuộc gọi với audio stream');
-            call.answer(localStream);
-            
-            call.on('stream', (remoteStream) => {
-                console.log('Nhận được remote stream');
-                handleRemoteAudioOnly(remoteStream, call.peer);
-            });
-
-            call.on('error', (err) => {
-                console.error('Lỗi cuộc gọi:', err);
-                endCall();
-            });
-
-            call.on('close', () => {
-                console.log('Cuộc gọi đã kết thúc');
-                endCall();
-            });
-
-            currentCall = call;
-
-        } catch (err) {
-            console.error('Lỗi khi xử lý cuộc gọi:', err);
-            call.close();
-        }
-    });
-
-    // Thêm xử lý sự kiện connection
-    peer.on('connection', (conn) => {
-        conn.on('data', (data) => {
-            if (data.type === 'waiting') {
-                document.getElementById('waiting-box').classList.remove('hidden');
-                document.getElementById('setup-box').classList.add('hidden');
-                document.getElementById('call-box').classList.add('hidden');
-                document.getElementById('queue-position').textContent = data.position;
-            } else if (data.type === 'called') {
-                document.getElementById('waiting-box').classList.add('hidden');
-                document.getElementById('call-box').classList.remove('hidden');
-            } else if (data.type === 'queue_update' && isAdmin) {
-                waitingQueue = data.queue;
-                showNextPatientButton();
-                // Thêm log để debug
-                console.log('Hàng đợi đã được cập nhật:', waitingQueue);
+                adminPeerId = id;
             }
         });
-    });
+
+        peer.on('error', (error) => {
+            console.error('Lỗi PeerJS:', error);
+            if (error.type === 'peer-unavailable') {
+                alert('Không tìm thấy người dùng này');
+                return;
+            }
+        });
+
+        peer.on('disconnected', () => {
+            console.log('Mất kết nối với server');
+            setTimeout(() => {
+                if (!peer.destroyed) {
+                    peer.reconnect();
+                }
+            }, 3000);
+        });
+
+        await new Promise((resolve, reject) => {
+            peer.on('open', resolve);
+            peer.on('error', reject);
+            
+            // Timeout sau 10 giây
+            setTimeout(() => {
+                reject(new Error('Timeout kết nối'));
+            }, 10000);
+        });
+
+    } catch (err) {
+        console.error('Lỗi khởi tạo peer:', err);
+        throw err;
+    }
 }
 
 async function connectToPeer(peerId) {
-    if (!peerId) {
-        peerId = document.getElementById('peer-id-input').value;
-    }
-    
-    if (!peerId) {
-        alert('Vui lòng nhập Peer ID');
-        return;
-    }
-
     try {
-        // Dọn dẹp stream cũ
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-            localStream = null;
+        if (!peer || peer.destroyed) {
+            await initializePeer();
         }
 
-        // Khởi tạo stream mới
-        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-        
-        // Hiển thị local video
-        const localVideo = document.getElementById('local-video');
-        localVideo.srcObject = localStream;
-        await localVideo.play();
-
-        if (!peer || !peer.connected) {
-            throw new Error('Chưa kết nối tới server');
+        if (!localStream) {
+            localStream = await initializeStream();
         }
 
         console.log('Bắt đầu gọi tới:', peerId);
         const call = peer.call(peerId, localStream);
         
-        // Xử lý stream từ người được gọi
-        const connectTimeout = setTimeout(() => {
-            if (!currentCall) {
-                console.log('Timeout kết nối');
-                alert('Không thể kết nối, vui lòng thử lại');
-                endCall();
-            }
-        }, 30000);
-
         call.on('stream', (remoteStream) => {
-            clearTimeout(connectTimeout);
             console.log('Nhận được remote stream');
-            handleRemoteStream(remoteStream, peerId);
+            handleRemoteAudioOnly(remoteStream, peerId);
         });
 
-        // Xử lý lỗi
         call.on('error', (err) => {
             console.error('Lỗi cuộc gọi:', err);
             endCall();
         });
 
-        // Xử lý đóng cuộc gọi
         call.on('close', () => {
             console.log('Cuộc gọi đã kết thúc');
             endCall();
         });
 
         currentCall = call;
-        currentUserId = peerId;
 
     } catch (err) {
-        console.error('Lỗi khi kết nối:', err);
+        console.error('Lỗi kết nối:', err);
         alert('Không thể kết nối: ' + err.message);
     }
 }
