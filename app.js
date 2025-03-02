@@ -60,8 +60,7 @@ const adminMediaConstraints = {
 async function initializePeer() {
     console.log("Initializing peer...");
     
-    // Hủy peer cũ nếu có
-    if (peer) {
+    if (peer && !peer.destroyed) {
         peer.destroy();
     }
     
@@ -79,7 +78,7 @@ async function initializePeer() {
         if (isAdmin) {
             peer = new Peer('doctor123', peerConfig);
         } else {
-            peer = new Peer(peerConfig); // User thường dùng random ID
+            peer = new Peer(peerConfig);
         }
 
         // Xử lý sự kiện mở kết nối
@@ -87,7 +86,10 @@ async function initializePeer() {
             console.log('Peer ID của tôi là:', id);
             if (isAdmin) {
                 adminPeerId = id;
-                document.getElementById('admin-id').textContent = id;
+                const adminIdElement = document.getElementById('admin-id');
+                if (adminIdElement) {
+                    adminIdElement.textContent = id;
+                }
             }
         });
 
@@ -95,30 +97,29 @@ async function initializePeer() {
         peer.on('error', (error) => {
             console.error('Lỗi PeerJS:', error);
             if (error.type === 'unavailable-id') {
-                alert('ID bác sĩ đã được sử dụng, vui lòng thử lại sau');
-                peer.destroy();
+                console.log('ID bác sĩ đã được sử dụng, thử lại sau 5s');
                 setTimeout(initializePeer, 5000);
-                return;
-            }
-            if (error.type === 'peer-unavailable') {
-                alert('Không tìm thấy người dùng này');
-                return;
             }
         });
 
         // Xử lý ngắt kết nối
         peer.on('disconnected', () => {
             console.log('Mất kết nối với server');
-            if (!peer.destroyed) {
-                peer.reconnect();
-            }
+            setTimeout(() => {
+                if (!peer.destroyed) {
+                    peer.reconnect();
+                }
+            }, 1000);
         });
 
-        // Đợi kết nối thành công
+        // Đợi kết nối với timeout ngắn hơn
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                reject(new Error('Timeout kết nối'));
-            }, 10000);
+                if (peer.disconnected) {
+                    peer.reconnect();
+                }
+                resolve(); // Vẫn resolve để tiếp tục
+            }, 5000);
 
             peer.on('open', () => {
                 clearTimeout(timeout);
@@ -128,7 +129,8 @@ async function initializePeer() {
 
     } catch (err) {
         console.error('Lỗi khởi tạo peer:', err);
-        throw err;
+        // Thử lại sau 5s
+        setTimeout(initializePeer, 5000);
     }
 }
 
@@ -768,3 +770,29 @@ async function checkAudioDevices() {
         return false;
     }
 }
+
+peer.on('call', async (call) => {
+    console.log('Có cuộc gọi đến từ:', call.peer);
+    
+    try {
+        if (isAdmin) {
+            // Khởi tạo stream cho admin nếu chưa có
+            if (!localStream) {
+                localStream = await initializeStream();
+            }
+            
+            // Trả lời cuộc gọi với stream
+            call.answer(localStream);
+            
+            call.on('stream', (remoteStream) => {
+                console.log('Admin nhận được remote stream');
+                handleRemoteAudioOnly(remoteStream, call.peer);
+            });
+            
+            currentCall = call;
+        }
+    } catch (err) {
+        console.error('Lỗi xử lý cuộc gọi:', err);
+        call.close();
+    }
+});
