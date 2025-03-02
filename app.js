@@ -30,31 +30,15 @@ const ICE_SERVERS = {
     iceCandidatePoolSize: 10
 };
 
-const mediaConstraints = {
-    video: false,
-    audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 48000,
-        channelCount: 1,
-        latency: 0,
-        volume: 1.0
-    }
-};
-
-// Thêm constraints riêng cho admin
-const adminMediaConstraints = {
-    video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 15 }
-    },
-    audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-    }
+// Cấu hình audio thống nhất
+const AUDIO_CONFIG = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: 44100,
+    channelCount: 1,
+    latency: 0,
+    volume: 1.0
 };
 
 async function initializePeer() {
@@ -220,21 +204,27 @@ function toggleMic() {
 }
 
 function endCall() {
-    if (currentCall) {
-        currentCall.close();
-        currentCall = null;
-    }
-    
-    if (window.currentAudio) {
-        window.currentAudio.pause();
-        window.currentAudio.srcObject = null;
-        window.currentAudio = null;
-    }
+    try {
+        if (currentCall) {
+            currentCall.close();
+        }
+        
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+            localStream = null;
+        }
 
-    document.getElementById('call-box').classList.add('hidden');
-    document.getElementById('setup-box').classList.remove('hidden');
-    document.querySelector('.status-dot').classList.remove('active');
-    document.querySelector('.status-text').textContent = 'Đang gọi...';
+        currentCall = null;
+        updateCallUI(false);
+
+        if (isAdmin) {
+            initializeStream().then(stream => {
+                localStream = stream;
+            }).catch(console.error);
+        }
+    } catch (err) {
+        console.error('[DEBUG] Lỗi khi kết thúc cuộc gọi:', err);
+    }
 }
 
 // Thêm hàm toggleLoginForm
@@ -534,7 +524,7 @@ async function startNewCall(peerId, conn) {
         }
 
         // Admin sử dụng constraints có video
-        localStream = await navigator.mediaDevices.getUserMedia(adminMediaConstraints);
+        localStream = await navigator.mediaDevices.getUserMedia(AUDIO_CONFIG);
         
         const localVideo = document.getElementById('local-video');
         localVideo.srcObject = localStream;
@@ -717,20 +707,9 @@ async function initializeStream() {
         const permissions = await navigator.mediaDevices.getUserMedia({ audio: true });
         permissions.getTracks().forEach(track => track.stop());
 
-        // Cấu hình audio cho cả admin và user
-        const audioConfig = {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 44100,
-            channelCount: 1,
-            latency: 0,
-            volume: 1.0
-        };
-
         // Khởi tạo stream
         const stream = await navigator.mediaDevices.getUserMedia({
-            audio: audioConfig
+            audio: AUDIO_CONFIG
         });
 
         // Kiểm tra stream
@@ -771,33 +750,93 @@ async function checkAudioDevices() {
     }
 }
 
-peer.on('call', async (call) => {
-    console.log('[DEBUG] Nhận cuộc gọi từ:', call.peer);
-    console.log('[DEBUG] isAdmin:', isAdmin);
-    console.log('[DEBUG] Trạng thái localStream:', localStream ? 'đã có' : 'chưa có');
-    
+async function initializeAdmin() {
     try {
-        if (isAdmin) {
-            console.log('[DEBUG] Xử lý cuộc gọi cho admin');
-            if (!localStream) {
-                console.log('[DEBUG] Khởi tạo stream mới cho admin');
-                localStream = await initializeStream();
-                console.log('[DEBUG] Stream đã được khởi tạo:', localStream.getTracks().length, 'tracks');
+        isAdmin = true;
+        console.log('[DEBUG] Khởi tạo admin');
+        
+        // Kiểm tra và khởi tạo audio
+        const hasAudio = await checkAudioDevices();
+        if (!hasAudio) {
+            throw new Error('Không tìm thấy thiết bị âm thanh');
+        }
+
+        // Khởi tạo stream trước
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: AUDIO_CONFIG
+        });
+
+        // Sau đó mới khởi tạo peer
+        await initializePeer();
+        
+        return true;
+    } catch (err) {
+        console.error('[DEBUG] Lỗi khởi tạo admin:', err);
+        alert('Lỗi khởi tạo: ' + err.message);
+        return false;
+    }
+}
+
+function setupCallHandlers() {
+    if (!peer) return;
+
+    peer.on('call', async (call) => {
+        console.log('[DEBUG] Admin nhận cuộc gọi từ:', call.peer);
+        
+        try {
+            if (!localStream || localStream.getTracks().length === 0) {
+                console.log('[DEBUG] Khởi tạo lại stream cho admin');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: AUDIO_CONFIG
+                });
             }
-            
-            console.log('[DEBUG] Trả lời cuộc gọi với stream');
+
+            console.log('[DEBUG] Trả lời cuộc gọi');
             call.answer(localStream);
-            
+
             call.on('stream', (remoteStream) => {
-                console.log('[DEBUG] Admin nhận được remote stream');
-                console.log('[DEBUG] Remote stream tracks:', remoteStream.getTracks().length);
+                console.log('[DEBUG] Nhận được remote stream');
                 handleRemoteAudioOnly(remoteStream, call.peer);
             });
-            
+
+            call.on('error', (err) => {
+                console.error('[DEBUG] Lỗi cuộc gọi:', err);
+                endCall();
+            });
+
+            call.on('close', () => {
+                console.log('[DEBUG] Cuộc gọi kết thúc');
+                endCall();
+            });
+
             currentCall = call;
+            updateCallUI(true);
+
+        } catch (err) {
+            console.error('[DEBUG] Lỗi xử lý cuộc gọi:', err);
+            call.close();
+            alert('Lỗi kết nối cuộc gọi: ' + err.message);
         }
+    });
+}
+
+function updateCallUI(isInCall) {
+    try {
+        const setupBox = document.getElementById('setup-box');
+        const callBox = document.getElementById('call-box');
+        const statusText = document.querySelector('.status-text');
+        const statusDot = document.querySelector('.status-dot');
+
+        if (setupBox) setupBox.classList.toggle('hidden', isInCall);
+        if (callBox) callBox.classList.toggle('hidden', !isInCall);
+        
+        if (statusText && statusDot && isInCall) {
+            statusText.textContent = 'Đang trong cuộc gọi';
+            statusDot.classList.add('active');
+        }
+        
+        updateControlButtons();
     } catch (err) {
-        console.error('[DEBUG] Lỗi xử lý cuộc gọi:', err);
-        call.close();
+        console.error('[DEBUG] Lỗi cập nhật UI:', err);
     }
-});
+}
