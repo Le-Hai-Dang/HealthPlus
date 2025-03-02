@@ -753,7 +753,7 @@ async function handleRemoteStream(remoteStream, peerId) {
                         resolve();
                     };
                 }),
-                new Promise((_, reject) => {
+                new Promise((resolve) => {
                     setTimeout(() => {
                         console.log('Bỏ qua đợi metadata, thử play video');
                         resolve();
