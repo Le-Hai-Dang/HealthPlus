@@ -605,36 +605,49 @@ async function handleRemoteStream(remoteStream, peerId) {
     }
 }
 
-function handleRemoteAudioOnly(remoteStream, peerId) {
-    console.log('Xử lý remote audio từ:', peerId);
+async function handleRemoteAudioOnly(remoteStream, peerId) {
+    console.log('[DEBUG] Xử lý remote audio từ:', peerId);
     
     try {
+        // Tạo audio element mới
+        const audioElement = new Audio();
+        audioElement.autoplay = true;
+        
+        // Dừng audio cũ nếu có
         if (window.currentAudio) {
             window.currentAudio.pause();
             window.currentAudio.srcObject = null;
         }
 
-        const audioElement = new Audio();
-        audioElement.autoplay = true;
+        // Set stream mới
         audioElement.srcObject = remoteStream;
-        
-        // Cập nhật UI
-        document.getElementById('setup-box').classList.add('hidden');
-        document.getElementById('waiting-box').classList.add('hidden');
-        document.getElementById('call-box').classList.remove('hidden');
-        
-        const statusDot = document.querySelector('.status-dot');
-        const statusText = document.querySelector('.status-text');
-        
-        if (statusDot && statusText) {
-            statusDot.classList.add('active');
-            statusText.textContent = 'Đang trong cuộc gọi';
-        }
-
+        await audioElement.play();
         window.currentAudio = audioElement;
+
+        // Cập nhật UI
+        const setupBox = document.getElementById('setup-box');
+        const callBox = document.getElementById('call-box');
+        const statusText = document.querySelector('.status-text');
+        const statusDot = document.querySelector('.status-dot');
+
+        if (setupBox) setupBox.classList.add('hidden');
+        if (callBox) callBox.classList.remove('hidden');
         
+        if (statusText) statusText.textContent = 'Đang trong cuộc gọi';
+        if (statusDot) statusDot.classList.add('active');
+
+        // Hiện các nút điều khiển
+        const micBtn = document.getElementById('mic-btn');
+        const endCallBtn = document.getElementById('end-call-btn');
+        
+        if (micBtn) micBtn.classList.remove('hidden');
+        if (endCallBtn) endCallBtn.classList.remove('hidden');
+
+        console.log('[DEBUG] Đã thiết lập xong audio và UI');
+
     } catch (err) {
-        console.error('Lỗi xử lý audio:', err);
+        console.error('[DEBUG] Lỗi xử lý remote audio:', err);
+        throw err;
     }
 }
 
@@ -776,47 +789,45 @@ async function initializeAdmin() {
 }
 
 function setupCallHandlers() {
-    if (!peer) {
-        console.error('[DEBUG] Không thể setup handlers vì peer chưa được khởi tạo');
-        return;
-    }
+    if (!peer) return;
 
-    console.log('[DEBUG] Thiết lập handlers cho cuộc gọi');
-    
     peer.on('call', async (call) => {
         console.log('[DEBUG] Admin nhận cuộc gọi từ:', call.peer);
         
         try {
-            // Đảm bảo có stream
-            if (!localStream || localStream.getTracks().length === 0) {
-                console.log('[DEBUG] Khởi tạo lại stream cho admin');
+            // Khởi tạo stream nếu chưa có
+            if (!localStream) {
                 localStream = await navigator.mediaDevices.getUserMedia({
                     audio: AUDIO_CONFIG
                 });
             }
 
-            // Trả lời cuộc gọi ngay lập tức
-            console.log('[DEBUG] Trả lời cuộc gọi với stream');
+            // Trả lời cuộc gọi
             call.answer(localStream);
+            currentCall = call;
 
             // Xử lý remote stream
             call.on('stream', (remoteStream) => {
                 console.log('[DEBUG] Nhận được remote stream');
-                console.log('[DEBUG] Remote stream tracks:', remoteStream.getTracks().length);
-                handleRemoteAudioOnly(remoteStream, call.peer);
-                updateCallUI(true);
+                handleRemoteAudioOnly(remoteStream, call.peer)
+                    .catch(err => {
+                        console.error('[DEBUG] Lỗi xử lý remote stream:', err);
+                        call.close();
+                    });
             });
 
-            currentCall = call;
+            // Xử lý đóng cuộc gọi
+            call.on('close', () => {
+                console.log('[DEBUG] Cuộc gọi kết thúc');
+                endCall();
+            });
 
         } catch (err) {
             console.error('[DEBUG] Lỗi xử lý cuộc gọi:', err);
-            call.close();
-            alert('Lỗi kết nối cuộc gọi: ' + err.message);
+            if (call) call.close();
+            alert('Lỗi kết nối: ' + err.message);
         }
     });
-
-    console.log('[DEBUG] Đã thiết lập xong handlers');
 }
 
 function updateCallUI(isInCall) {
