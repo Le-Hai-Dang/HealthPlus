@@ -59,13 +59,22 @@ async function initializePeer() {
     }
     
     const peerConfig = {
-        host: '0.peerjs.com',
+        host: 'peerjs.min.js',  // Thay đổi host
         port: 443,
         secure: true,
+        path: '/peerjs',
         debug: 3,
-        config: ICE_SERVERS,
-        reconnectTimer: 1000,
-        retries: 3
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:a.relay.metered.ca:443',
+                    username: 'e8c7e8e14b95e7e12d6f7592',
+                    credential: 'UAK0JrYJxNgA5cZe'
+                }
+            ]
+        }
     };
 
     if (isAdmin) {
@@ -87,13 +96,19 @@ async function initializePeer() {
 
     peer.on('error', (error) => {
         console.error('Lỗi PeerJS:', error);
-        peer.connected = false;
         
-        if (error.type === 'peer-unavailable' || error.type === 'disconnected') {
+        if (error.type === 'peer-unavailable') {
+            alert('Không tìm thấy người dùng này');
+            return;
+        }
+        
+        if (error.type === 'disconnected' || error.type === 'network') {
+            console.log('Đang thử kết nối lại...');
+            peer.reconnect();
+        } else {
+            // Khởi tạo lại peer sau 5 giây nếu có lỗi khác
             setTimeout(() => {
-                if (!peer.connected) {
-                    initializePeer();
-                }
+                initializePeer();
             }, 5000);
         }
     });
