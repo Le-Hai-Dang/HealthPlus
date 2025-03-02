@@ -23,18 +23,13 @@ const ICE_SERVERS = {
         { urls: 'stun:stun1.l.google.com:19302' },
         {
             urls: 'turn:a.relay.metered.ca:80',
-            username: 'your_username',  // Đăng ký tại metered.ca để lấy credentials
-            credential: 'your_credential'
+            username: 'e8c7e8e14b95e7e12d6f7592',  // Thay bằng credentials thực
+            credential: 'UAK0JrYJxNgA5cZe'
         },
         {
             urls: 'turn:a.relay.metered.ca:443',
-            username: 'your_username',
-            credential: 'your_credential'
-        },
-        {
-            urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-            username: 'your_username',
-            credential: 'your_credential'
+            username: 'e8c7e8e14b95e7e12d6f7592',
+            credential: 'UAK0JrYJxNgA5cZe'
         }
     ],
     iceCandidatePoolSize: 10,
@@ -102,9 +97,16 @@ async function initializePeer() {
     peer.on('disconnected', () => {
         console.log('Mất kết nối với server');
         peer.connected = false;
-        // Thử kết nối lại sau 5 giây
+        
+        // Thử kết nối lại ngay lập tức
+        peer.reconnect();
+        
+        // Nếu không thành công, khởi tạo lại peer sau 5 giây
         setTimeout(() => {
-            peer.reconnect();
+            if (!peer.connected) {
+                console.log('Thử khởi tạo lại peer...');
+                initializePeer();
+            }
         }, 5000);
     });
 
@@ -769,14 +771,36 @@ async function startNewCall(peerId, conn) {
 
 function handleRemoteStream(remoteStream, peerId) {
     console.log('Xử lý remote stream từ:', peerId);
-    const remoteVideo = document.getElementById('remote-video');
-    remoteVideo.srcObject = remoteStream;
-    remoteVideo.play().catch(e => console.error('Lỗi khi play remote video:', e));
     
-    document.getElementById('setup-box').classList.add('hidden');
-    document.getElementById('call-box').classList.remove('hidden');
-    updateControlButtons();
-    showNextPatientButton();
+    try {
+        const remoteVideo = document.getElementById('remote-video');
+        
+        // Dọn dẹp stream cũ nếu có
+        if (remoteVideo.srcObject) {
+            const oldStream = remoteVideo.srcObject;
+            remoteVideo.srcObject = null;
+            oldStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // Đợi một chút trước khi set stream mới
+        setTimeout(() => {
+            remoteVideo.srcObject = remoteStream;
+            remoteVideo.play()
+                .then(() => console.log('Remote video đang phát'))
+                .catch(err => {
+                    console.error('Lỗi khi play remote video:', err);
+                    // Thử lại sau 1 giây
+                    setTimeout(() => remoteVideo.play(), 1000);
+                });
+                
+            document.getElementById('setup-box').classList.add('hidden');
+            document.getElementById('call-box').classList.remove('hidden');
+            updateControlButtons();
+            showNextPatientButton();
+        }, 500);
+    } catch (err) {
+        console.error('Lỗi xử lý remote stream:', err);
+    }
 }
 
 function returnToClinic() {
