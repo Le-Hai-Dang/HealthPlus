@@ -133,31 +133,32 @@ async function initializePeer() {
                 currentUserId = call.peer;
             }
 
-            // Kiểm tra và dọn dẹp stream cũ
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    track.stop();
-                    localStream.removeTrack(track);
-                });
-                localStream = null;
-            }
-
-            // Khởi tạo stream mới với timeout
-            localStream = await Promise.race([
-                getLocalStreamWithRetry(),
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout khởi tạo stream')), 10000)
-                )
-            ]);
-
+            // Khởi tạo stream mới
+            localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+            
             console.log('Đã có local stream, hiển thị video local');
             const localVideo = document.getElementById('local-video');
-            localVideo.srcObject = localStream;
-            await localVideo.play().catch(e => console.error('Lỗi khi play local video:', e));
+            
+            // Đợi video element sẵn sàng
+            await new Promise(resolve => {
+                localVideo.onloadedmetadata = resolve;
+                localVideo.srcObject = localStream;
+            });
 
-            console.log('Trả lời cuộc gọi với local stream');
+            await localVideo.play();
+            console.log('Local video đang phát');
+
+            // Trả lời cuộc gọi
             call.answer(localStream);
-            handleCall(call);
+            
+            // Xử lý remote stream
+            call.on('stream', (remoteStream) => {
+                console.log('Nhận được remote stream');
+                handleRemoteStream(remoteStream, call.peer);
+            });
+
+            currentCall = call;
+
         } catch (err) {
             console.error('Lỗi khi xử lý cuộc gọi đến:', err);
             call.close();
@@ -769,54 +770,50 @@ async function startNewCall(peerId, conn) {
     }
 }
 
-function handleRemoteStream(remoteStream, peerId) {
+async function handleRemoteStream(remoteStream, peerId) {
     console.log('Xử lý remote stream từ:', peerId);
     
     try {
         const remoteVideo = document.getElementById('remote-video');
         
-        // Dọn dẹp stream cũ nếu có
+        // Dọn dẹp stream cũ
         if (remoteVideo.srcObject) {
             const oldStream = remoteVideo.srcObject;
             remoteVideo.srcObject = null;
-            oldStream.getTracks().forEach(track => {
-                track.stop();
-                oldStream.removeTrack(track);
-            });
-            // Đợi một chút để đảm bảo stream cũ đã được dọn dẹp
-            return new Promise(resolve => {
-                setTimeout(async () => {
-                    try {
-                        remoteVideo.srcObject = remoteStream;
-                        await remoteVideo.play();
-                        console.log('Remote video đang phát');
-                        
-                        document.getElementById('setup-box').classList.add('hidden');
-                        document.getElementById('call-box').classList.remove('hidden');
-                        updateControlButtons();
-                        if (isAdmin) {
-                            showNextPatientButton();
-                        }
-                        resolve();
-                    } catch (err) {
-                        console.error('Lỗi khi play remote video:', err);
-                        // Thử lại một lần nữa sau 1 giây
-                        setTimeout(async () => {
-                            try {
-                                await remoteVideo.play();
-                                console.log('Remote video phát thành công sau khi thử lại');
-                                resolve();
-                            } catch (retryErr) {
-                                console.error('Vẫn không thể phát video:', retryErr);
-                                resolve();
-                            }
-                        }, 1000);
-                    }
-                }, 500);
-            });
+            oldStream.getTracks().forEach(track => track.stop());
         }
+
+        // Set stream mới
+        remoteVideo.srcObject = remoteStream;
+        
+        // Đợi video element sẵn sàng
+        await new Promise(resolve => {
+            remoteVideo.onloadedmetadata = resolve;
+        });
+
+        // Play video
+        await remoteVideo.play();
+        console.log('Remote video đang phát');
+
+        // Cập nhật UI
+        document.getElementById('setup-box').classList.add('hidden');
+        document.getElementById('call-box').classList.remove('hidden');
+        updateControlButtons();
+        if (isAdmin) {
+            showNextPatientButton();
+        }
+
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
+        // Thử lại sau 1 giây nếu lỗi
+        setTimeout(async () => {
+            try {
+                await remoteVideo.play();
+                console.log('Remote video phát thành công sau khi thử lại');
+            } catch (retryErr) {
+                console.error('Vẫn không thể phát video:', retryErr);
+            }
+        }, 1000);
     }
 }
 
