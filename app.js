@@ -55,24 +55,23 @@ async function initializePeer() {
     // Đóng kết nối cũ nếu có
     if (peer) {
         peer.destroy();
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Đợi 1s để đảm bảo kết nối cũ đã đóng
     }
     
+    const peerConfig = {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 3,
+        config: ICE_SERVERS,
+        reconnectTimer: 1000,
+        retries: 3
+    };
+
     if (isAdmin) {
-        peer = new Peer(ADMIN_CREDENTIALS.peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            secure: true,
-            debug: 3, // Thêm debug để theo dõi lỗi
-            config: ICE_SERVERS
-        });
+        peer = new Peer(ADMIN_CREDENTIALS.peerId, peerConfig);
     } else {
-        peer = new Peer({
-            host: '0.peerjs.com', 
-            port: 443,
-            secure: true,
-            debug: 3,
-            config: ICE_SERVERS
-        });
+        peer = new Peer(peerConfig);
     }
 
     peer.on('open', (id) => {
@@ -88,9 +87,14 @@ async function initializePeer() {
 
     peer.on('error', (error) => {
         console.error('Lỗi PeerJS:', error);
-        if (error.type === 'peer-unavailable') {
-            // Thử khởi tạo lại kết nối
-            setTimeout(initializePeer, 5000);
+        peer.connected = false;
+        
+        if (error.type === 'peer-unavailable' || error.type === 'disconnected') {
+            setTimeout(() => {
+                if (!peer.connected) {
+                    initializePeer();
+                }
+            }, 5000);
         }
     });
 
@@ -98,16 +102,12 @@ async function initializePeer() {
         console.log('Mất kết nối với server');
         peer.connected = false;
         
-        // Thử kết nối lại ngay lập tức
-        peer.reconnect();
-        
-        // Nếu không thành công, khởi tạo lại peer sau 5 giây
+        // Đợi 1s trước khi thử reconnect
         setTimeout(() => {
-            if (!peer.connected) {
-                console.log('Thử khởi tạo lại peer...');
-                initializePeer();
+            if (!peer.destroyed) {
+                peer.reconnect();
             }
-        }, 5000);
+        }, 1000);
     });
 
     peer.on('call', async (call) => {
@@ -346,13 +346,11 @@ function toggleMic() {
 }
 
 function endCall() {
-    // Dọn dẹp cuộc gọi hiện tại
     if (currentCall) {
         currentCall.close();
         currentCall = null;
     }
     
-    // Dừng và dọn dẹp stream
     if (localStream) {
         localStream.getTracks().forEach(track => {
             track.stop();
@@ -361,7 +359,6 @@ function endCall() {
         localStream = null;
     }
     
-    // Reset video elements
     const localVideo = document.getElementById('local-video');
     const remoteVideo = document.getElementById('remote-video');
     
@@ -375,12 +372,9 @@ function endCall() {
         remoteVideo.load();
     }
     
-    // Cập nhật UI
+    currentUserId = null;
     document.getElementById('call-box').classList.add('hidden');
     document.getElementById('setup-box').classList.remove('hidden');
-    
-    currentUserId = null;
-    showNextPatientButton();
 }
 
 // Thêm hàm toggleLoginForm
@@ -779,25 +773,36 @@ function handleRemoteStream(remoteStream, peerId) {
         if (remoteVideo.srcObject) {
             const oldStream = remoteVideo.srcObject;
             remoteVideo.srcObject = null;
-            oldStream.getTracks().forEach(track => track.stop());
+            oldStream.getTracks().forEach(track => {
+                track.stop();
+                oldStream.removeTrack(track);
+            });
         }
         
-        // Đợi một chút trước khi set stream mới
+        // Đợi 500ms trước khi set stream mới
         setTimeout(() => {
-            remoteVideo.srcObject = remoteStream;
-            remoteVideo.play()
-                .then(() => console.log('Remote video đang phát'))
-                .catch(err => {
-                    console.error('Lỗi khi play remote video:', err);
-                    // Thử lại sau 1 giây
-                    setTimeout(() => remoteVideo.play(), 1000);
-                });
-                
-            document.getElementById('setup-box').classList.add('hidden');
-            document.getElementById('call-box').classList.remove('hidden');
-            updateControlButtons();
-            showNextPatientButton();
+            if (!remoteVideo.srcObject) {
+                remoteVideo.srcObject = remoteStream;
+                remoteVideo.play()
+                    .then(() => console.log('Remote video đang phát'))
+                    .catch(err => {
+                        console.error('Lỗi khi play remote video:', err);
+                        // Thử lại sau 1 giây
+                        setTimeout(() => {
+                            remoteVideo.play()
+                                .catch(retryErr => console.error('Vẫn không thể phát video:', retryErr));
+                        }, 1000);
+                    });
+                    
+                document.getElementById('setup-box').classList.add('hidden');
+                document.getElementById('call-box').classList.remove('hidden');
+                updateControlButtons();
+                if (isAdmin) {
+                    showNextPatientButton();
+                }
+            }
         }, 500);
+        
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
     }
