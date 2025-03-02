@@ -755,20 +755,18 @@ async function initializeAdmin() {
         isAdmin = true;
         console.log('[DEBUG] Khởi tạo admin');
         
-        // Kiểm tra và khởi tạo audio
-        const hasAudio = await checkAudioDevices();
-        if (!hasAudio) {
-            throw new Error('Không tìm thấy thiết bị âm thanh');
-        }
-
         // Khởi tạo stream trước
         localStream = await navigator.mediaDevices.getUserMedia({
             audio: AUDIO_CONFIG
         });
 
-        // Sau đó mới khởi tạo peer
+        // Sau đó khởi tạo peer
         await initializePeer();
         
+        // Thêm handlers cho cuộc gọi
+        setupCallHandlers();
+        
+        console.log('[DEBUG] Khởi tạo admin thành công');
         return true;
     } catch (err) {
         console.error('[DEBUG] Lỗi khởi tạo admin:', err);
@@ -778,12 +776,18 @@ async function initializeAdmin() {
 }
 
 function setupCallHandlers() {
-    if (!peer) return;
+    if (!peer) {
+        console.error('[DEBUG] Không thể setup handlers vì peer chưa được khởi tạo');
+        return;
+    }
 
+    console.log('[DEBUG] Thiết lập handlers cho cuộc gọi');
+    
     peer.on('call', async (call) => {
         console.log('[DEBUG] Admin nhận cuộc gọi từ:', call.peer);
         
         try {
+            // Đảm bảo có stream
             if (!localStream || localStream.getTracks().length === 0) {
                 console.log('[DEBUG] Khởi tạo lại stream cho admin');
                 localStream = await navigator.mediaDevices.getUserMedia({
@@ -791,26 +795,19 @@ function setupCallHandlers() {
                 });
             }
 
-            console.log('[DEBUG] Trả lời cuộc gọi');
+            // Trả lời cuộc gọi ngay lập tức
+            console.log('[DEBUG] Trả lời cuộc gọi với stream');
             call.answer(localStream);
 
+            // Xử lý remote stream
             call.on('stream', (remoteStream) => {
                 console.log('[DEBUG] Nhận được remote stream');
+                console.log('[DEBUG] Remote stream tracks:', remoteStream.getTracks().length);
                 handleRemoteAudioOnly(remoteStream, call.peer);
-            });
-
-            call.on('error', (err) => {
-                console.error('[DEBUG] Lỗi cuộc gọi:', err);
-                endCall();
-            });
-
-            call.on('close', () => {
-                console.log('[DEBUG] Cuộc gọi kết thúc');
-                endCall();
+                updateCallUI(true);
             });
 
             currentCall = call;
-            updateCallUI(true);
 
         } catch (err) {
             console.error('[DEBUG] Lỗi xử lý cuộc gọi:', err);
@@ -818,6 +815,8 @@ function setupCallHandlers() {
             alert('Lỗi kết nối cuộc gọi: ' + err.message);
         }
     });
+
+    console.log('[DEBUG] Đã thiết lập xong handlers');
 }
 
 function updateCallUI(isInCall) {
