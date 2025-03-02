@@ -40,13 +40,16 @@ const mediaConstraints = {
     video: {
         width: { min: 320, ideal: 640, max: 1280 },
         height: { min: 240, ideal: 480, max: 720 },
-        frameRate: { min: 10, ideal: 15, max: 30 },
-        facingMode: 'user'
+        frameRate: { min: 10, ideal: 24, max: 30 },
+        facingMode: 'user',
+        aspectRatio: { ideal: 1.7777777778 }
     },
     audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 2
     }
 };
 
@@ -726,6 +729,18 @@ async function handleRemoteStream(remoteStream, peerId) {
     try {
         const remoteVideo = document.getElementById('remote-video');
         
+        // Kiểm tra tracks
+        const videoTracks = remoteStream.getVideoTracks();
+        const audioTracks = remoteStream.getAudioTracks();
+        
+        console.log('Video tracks:', videoTracks.length);
+        console.log('Audio tracks:', audioTracks.length);
+
+        if (videoTracks.length === 0) {
+            console.error('Không có video track trong stream');
+            return;
+        }
+
         // Đảm bảo video element được cấu hình đúng
         remoteVideo.autoplay = true;
         remoteVideo.playsInline = true;
@@ -738,26 +753,27 @@ async function handleRemoteStream(remoteStream, peerId) {
             oldStream.getTracks().forEach(track => track.stop());
         }
 
-        // Set stream mới và đợi metadata
+        // Set stream mới
         remoteVideo.srcObject = remoteStream;
-        await new Promise((resolve) => {
-            remoteVideo.onloadedmetadata = resolve;
+        
+        // Đợi video sẵn sàng
+        await new Promise((resolve, reject) => {
+            let timeout = setTimeout(() => reject(new Error('Video load timeout')), 5000);
+            
+            remoteVideo.onloadedmetadata = () => {
+                clearTimeout(timeout);
+                resolve();
+            };
         });
 
-        // Play video với retry
-        try {
+        // Play video
+        await remoteVideo.play();
+        console.log('Remote video đang phát');
+
+        // Kiểm tra video đang phát
+        if (remoteVideo.paused) {
+            console.error('Video bị pause sau khi play');
             await remoteVideo.play();
-            console.log('Remote video đang phát');
-        } catch (err) {
-            console.error('Lỗi khi play video:', err);
-            // Thử lại sau khi user tương tác
-            document.body.addEventListener('click', async () => {
-                try {
-                    await remoteVideo.play();
-                } catch (retryErr) {
-                    console.error('Vẫn không thể phát video:', retryErr);
-                }
-            }, { once: true });
         }
 
         // Cập nhật UI
@@ -770,6 +786,14 @@ async function handleRemoteStream(remoteStream, peerId) {
 
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
+        // Thử lại sau 1 giây
+        setTimeout(async () => {
+            try {
+                await remoteVideo.play();
+            } catch (retryErr) {
+                console.error('Vẫn không thể phát video:', retryErr);
+            }
+        }, 1000);
     }
 }
 

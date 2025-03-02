@@ -282,6 +282,17 @@ button:hover {
 .video-wrapper {
     position: relative;
     width: 100%;
+    max-width: 640px;
+    aspect-ratio: 16/9;
+    background: #000;
+    overflow: hidden;
+}
+
+.video-wrapper video {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .video-label {
