@@ -55,18 +55,23 @@ async function initializePeer() {
     }
     
     const peerConfig = {
-        host: 'free-peerjs-server.herokuapp.com', // Server PeerJS miễn phí
+        host: '0.peerjs.com', // Thay đổi server
         port: 443,
         secure: true,
         debug: 3,
+        path: '/',  // Thêm path
         config: {
-            ...ICE_SERVERS,
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require',
-            iceTransportPolicy: 'relay' // Ưu tiên TURN server để ổn định hơn
-        },
-        reconnectTimer: 1000,
-        retries: 3
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:a.relay.metered.ca:443',
+                    username: 'e8c7e8e14b95e7e12d6f7592',
+                    credential: 'UAK0JrYJxNgA5cZe'
+                }
+            ],
+            iceCandidatePoolSize: 10
+        }
     };
 
     if (isAdmin) {
@@ -88,11 +93,18 @@ async function initializePeer() {
 
     peer.on('error', (error) => {
         console.error('Lỗi PeerJS:', error);
-        peer.connected = false;
         
-        if (error.type === 'peer-unavailable' || error.type === 'disconnected') {
+        if (error.type === 'peer-unavailable') {
+            alert('Không tìm thấy người dùng này');
+            return;
+        }
+        
+        if (error.type === 'disconnected' || error.type === 'network') {
+            console.log('Đang thử kết nối lại...');
             setTimeout(() => {
-                if (!peer.connected) {
+                if (!peer.destroyed) {
+                    peer.reconnect();
+                } else {
                     initializePeer();
                 }
             }, 5000);
