@@ -118,10 +118,17 @@ async function initializePeer() {
 
 async function connectToPeer(peerId) {
     try {
+        // Kiểm tra thiết bị âm thanh
+        const hasAudioDevice = await checkAudioDevices();
+        if (!hasAudioDevice) {
+            throw new Error('Vui lòng kết nối microphone để thực hiện cuộc gọi');
+        }
+
         if (!peer || peer.destroyed) {
             await initializePeer();
         }
 
+        // Khởi tạo stream mới nếu chưa có
         if (!localStream) {
             localStream = await initializeStream();
         }
@@ -134,21 +141,11 @@ async function connectToPeer(peerId) {
             handleRemoteAudioOnly(remoteStream, peerId);
         });
 
-        call.on('error', (err) => {
-            console.error('Lỗi cuộc gọi:', err);
-            endCall();
-        });
-
-        call.on('close', () => {
-            console.log('Cuộc gọi đã kết thúc');
-            endCall();
-        });
-
         currentCall = call;
 
     } catch (err) {
         console.error('Lỗi kết nối:', err);
-        alert('Không thể kết nối: ' + err.message);
+        alert(err.message);
     }
 }
 
@@ -711,20 +708,51 @@ async function getLocalStreamWithRetry(maxRetries = 3) {
 
 async function initializeStream() {
     try {
+        // Kiểm tra quyền truy cập microphone trước
+        const permissions = await navigator.mediaDevices.getUserMedia({ audio: true });
+        permissions.getTracks().forEach(track => track.stop());
+
+        // Sau khi có quyền, khởi tạo stream với cấu hình tối ưu
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: false,
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
-                sampleRate: 48000,
-                channelCount: 1
+                sampleRate: 44100, // Giảm sample rate
+                channelCount: 1,
+                volume: 1.0
             }
         });
-        
+
+        // Kiểm tra stream
+        if (!stream || !stream.getAudioTracks().length) {
+            throw new Error('Không thể khởi tạo audio stream');
+        }
+
         return stream;
     } catch (err) {
-        console.error('Lỗi khởi tạo stream:', err);
+        console.error('Lỗi khởi tạo audio stream:', err);
+        if (err.name === 'NotAllowedError') {
+            alert('Vui lòng cho phép truy cập microphone để thực hiện cuộc gọi');
+        } else {
+            alert('Không thể kết nối microphone: ' + err.message);
+        }
         throw err;
+    }
+}
+
+async function checkAudioDevices() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioDevices = devices.filter(device => device.kind === 'audioinput');
+        
+        if (audioDevices.length === 0) {
+            throw new Error('Không tìm thấy thiết bị microphone');
+        }
+        
+        return true;
+    } catch (err) {
+        console.error('Lỗi kiểm tra thiết bị âm thanh:', err);
+        return false;
     }
 }
