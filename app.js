@@ -53,12 +53,24 @@ async function initializePeer() {
     }
     
     const peerConfig = {
-        host: '0.peerjs.com',  // Sử dụng PeerJS cloud server
+        host: '0.peerjs.com',
         port: 443,
         secure: true,
         path: '/',
         debug: 3,
-        config: ICE_SERVERS
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: 'turn:a.relay.metered.ca:443',
+                    username: 'e8c7e8e14b95e7e12d6f7592',
+                    credential: 'UAK0JrYJxNgA5cZe'
+                }
+            ],
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all'
+        }
     };
 
     if (isAdmin) {
@@ -269,9 +281,38 @@ async function connectToPeer(peerId) {
 
 function handleCall(call) {
     currentCall = call;
-    let streamProcessing = false;
+    
+    // Xử lý remote stream
+    call.on('stream', async (remoteStream) => {
+        console.log('Nhận được remote stream');
+        try {
+            const remoteVideo = document.getElementById('remote-video');
+            
+            // Cấu hình video element
+            remoteVideo.autoplay = true;
+            remoteVideo.playsInline = true;
+            remoteVideo.muted = false;
+            
+            // Set stream mới
+            remoteVideo.srcObject = remoteStream;
+            await remoteVideo.play().catch(async (err) => {
+                console.warn('Lỗi khi play video:', err);
+                // Thử lại sau 1s
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                await remoteVideo.play();
+            });
 
-    // Theo dõi trạng thái kết nối ICE
+            // Cập nhật UI
+            document.getElementById('setup-box').classList.add('hidden');
+            document.getElementById('call-box').classList.remove('hidden');
+            updateControlButtons();
+
+        } catch (err) {
+            console.error('Lỗi xử lý remote stream:', err);
+        }
+    });
+
+    // Theo dõi kết nối ICE
     call.peerConnection.oniceconnectionstatechange = () => {
         const state = call.peerConnection.iceConnectionState;
         console.log('Trạng thái ICE:', state);
@@ -281,65 +322,6 @@ function handleCall(call) {
             call.peerConnection.restartIce();
         }
     };
-
-    // Xử lý remote stream
-    call.on('stream', async (remoteStream) => {
-        console.log('Nhận được remote stream');
-        
-        // Tránh xử lý đồng thời nhiều stream
-        if (streamProcessing) {
-            console.log('Đang xử lý stream khác, bỏ qua');
-            return;
-        }
-        
-        streamProcessing = true;
-        
-        try {
-            const remoteVideo = document.getElementById('remote-video');
-            
-            // Dọn dẹp stream cũ
-            if (remoteVideo.srcObject) {
-                const oldStream = remoteVideo.srcObject;
-                remoteVideo.srcObject = null;
-                oldStream.getTracks().forEach(track => track.stop());
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            // Thiết lập stream mới
-            remoteVideo.srcObject = remoteStream;
-            
-            // Đợi video load xong
-            await new Promise(resolve => {
-                remoteVideo.onloadedmetadata = resolve;
-            });
-            
-            // Play video
-            await remoteVideo.play();
-            console.log('Remote video đang phát');
-            
-        } catch (err) {
-            console.error('Lỗi khi xử lý remote stream:', err);
-            
-            // Thử lại sau 1 giây nếu lỗi
-            setTimeout(async () => {
-                try {
-                    const remoteVideo = document.getElementById('remote-video');
-                    await remoteVideo.play();
-                    console.log('Remote video phát thành công sau khi thử lại');
-                } catch (retryErr) {
-                    console.error('Không thể phát video sau khi thử lại:', retryErr);
-                }
-            }, 1000);
-            
-        } finally {
-            streamProcessing = false;
-        }
-    });
-
-    // Cập nhật UI
-    document.getElementById('setup-box').classList.add('hidden');
-    document.getElementById('call-box').classList.remove('hidden');
-    updateControlButtons();
 }
 
 function toggleCamera() {
