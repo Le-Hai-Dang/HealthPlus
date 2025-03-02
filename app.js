@@ -754,30 +754,45 @@ async function handleRemoteStream(remoteStream, peerId) {
     }
 }
 
-function handleRemoteAudioOnly(remoteStream, peerId) {
+async function handleRemoteAudioOnly(remoteStream, peerId) {
     console.log('Xử lý remote audio từ:', peerId);
     
     try {
+        // Dọn dẹp audio cũ nếu có
+        if (window.currentAudio) {
+            window.currentAudio.pause();
+            window.currentAudio.srcObject = null;
+        }
+
         const audioElement = new Audio();
         audioElement.srcObject = remoteStream;
         audioElement.autoplay = true;
         
         // Tối ưu audio
         audioElement.volume = 1.0;
-        audioElement.setSinkId('default');
-
+        
         // Hiển thị UI cuộc gọi
         document.getElementById('setup-box').classList.add('hidden');
+        document.getElementById('waiting-box').classList.add('hidden');
         document.getElementById('call-box').classList.remove('hidden');
-        document.querySelector('.status-text').textContent = 'Đang trong cuộc gọi';
-        document.querySelector('.status-dot').classList.add('active');
         
-        // Lưu audio element để có thể dọn dẹp sau
+        const statusText = document.querySelector('.status-text');
+        const statusDot = document.querySelector('.status-dot');
+        
+        if (statusText && statusDot) {
+            statusText.textContent = 'Đang trong cuộc gọi';
+            statusDot.classList.add('active');
+        }
+        
+        // Lưu audio element
         window.currentAudio = audioElement;
         
+        // Xử lý khi kết thúc
         audioElement.onended = () => {
             endCall();
         };
+
+        updateControlButtons();
 
     } catch (err) {
         console.error('Lỗi xử lý audio:', err);
