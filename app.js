@@ -22,18 +22,12 @@ const ICE_SERVERS = {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         {
-            urls: 'turn:a.relay.metered.ca:80',
-            username: 'e8c7e8e14b95e7e12d6f7592',  // Thay bằng credentials thực
-            credential: 'UAK0JrYJxNgA5cZe'
-        },
-        {
             urls: 'turn:a.relay.metered.ca:443',
             username: 'e8c7e8e14b95e7e12d6f7592',
             credential: 'UAK0JrYJxNgA5cZe'
         }
     ],
-    iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'relay' // Bắt buộc sử dụng TURN server
+    iceCandidatePoolSize: 10
 };
 
 const mediaConstraints = {
@@ -59,22 +53,12 @@ async function initializePeer() {
     }
     
     const peerConfig = {
-        host: 'peerjs.min.js',  // Thay đổi host
+        host: '0.peerjs.com',  // Sử dụng PeerJS cloud server
         port: 443,
         secure: true,
-        path: '/peerjs',
+        path: '/',
         debug: 3,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                {
-                    urls: 'turn:a.relay.metered.ca:443',
-                    username: 'e8c7e8e14b95e7e12d6f7592',
-                    credential: 'UAK0JrYJxNgA5cZe'
-                }
-            ]
-        }
+        config: ICE_SERVERS
     };
 
     if (isAdmin) {
@@ -115,14 +99,14 @@ async function initializePeer() {
 
     peer.on('disconnected', () => {
         console.log('Mất kết nối với server');
-        peer.connected = false;
-        
-        // Đợi 1s trước khi thử reconnect
+        // Thử kết nối lại sau 5 giây
         setTimeout(() => {
             if (!peer.destroyed) {
                 peer.reconnect();
+            } else {
+                initializePeer();
             }
-        }, 1000);
+        }, 5000);
     });
 
     peer.on('call', async (call) => {
@@ -161,7 +145,16 @@ async function initializePeer() {
             console.log('Trả lời cuộc gọi với local stream');
             call.answer(localStream);
             
+            const connectTimeout = setTimeout(() => {
+                if (!currentCall) {
+                    console.log('Timeout kết nối');
+                    alert('Không thể kết nối, vui lòng thử lại');
+                    endCall();
+                }
+            }, 30000);
+
             call.on('stream', (remoteStream) => {
+                clearTimeout(connectTimeout);
                 console.log('Nhận được remote stream');
                 handleRemoteStream(remoteStream, call.peer);
             });
@@ -239,7 +232,16 @@ async function connectToPeer(peerId) {
         const call = peer.call(peerId, localStream);
         
         // Xử lý stream từ người được gọi
+        const connectTimeout = setTimeout(() => {
+            if (!currentCall) {
+                console.log('Timeout kết nối');
+                alert('Không thể kết nối, vui lòng thử lại');
+                endCall();
+            }
+        }, 30000);
+
         call.on('stream', (remoteStream) => {
+            clearTimeout(connectTimeout);
             console.log('Nhận được remote stream');
             handleRemoteStream(remoteStream, peerId);
         });
