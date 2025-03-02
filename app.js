@@ -38,9 +38,10 @@ const ICE_SERVERS = {
 
 const mediaConstraints = {
     video: {
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 15 }
+        width: { min: 320, ideal: 640, max: 1280 },
+        height: { min: 240, ideal: 480, max: 720 },
+        frameRate: { min: 10, ideal: 15, max: 30 },
+        facingMode: 'user'
     },
     audio: {
         echoCancellation: true,
@@ -725,6 +726,11 @@ async function handleRemoteStream(remoteStream, peerId) {
     try {
         const remoteVideo = document.getElementById('remote-video');
         
+        // Đảm bảo video element được cấu hình đúng
+        remoteVideo.autoplay = true;
+        remoteVideo.playsInline = true;
+        remoteVideo.muted = false;
+        
         // Dọn dẹp stream cũ
         if (remoteVideo.srcObject) {
             const oldStream = remoteVideo.srcObject;
@@ -732,24 +738,28 @@ async function handleRemoteStream(remoteStream, peerId) {
             oldStream.getTracks().forEach(track => track.stop());
         }
 
-        // Set stream mới
+        // Set stream mới và đợi metadata
         remoteVideo.srcObject = remoteStream;
-        
-        // Đợi video element sẵn sàng và play
-        await new Promise((resolve, reject) => {
-            remoteVideo.onloadedmetadata = () => {
-                remoteVideo.play()
-                    .then(resolve)
-                    .catch(reject);
-            };
-            remoteVideo.onerror = reject;
-            
-            // Timeout sau 5 giây
-            setTimeout(() => reject(new Error('Timeout loading video')), 5000);
+        await new Promise((resolve) => {
+            remoteVideo.onloadedmetadata = resolve;
         });
 
-        console.log('Remote video đang phát');
-        
+        // Play video với retry
+        try {
+            await remoteVideo.play();
+            console.log('Remote video đang phát');
+        } catch (err) {
+            console.error('Lỗi khi play video:', err);
+            // Thử lại sau khi user tương tác
+            document.body.addEventListener('click', async () => {
+                try {
+                    await remoteVideo.play();
+                } catch (retryErr) {
+                    console.error('Vẫn không thể phát video:', retryErr);
+                }
+            }, { once: true });
+        }
+
         // Cập nhật UI
         document.getElementById('setup-box').classList.add('hidden');
         document.getElementById('call-box').classList.remove('hidden');
@@ -760,14 +770,6 @@ async function handleRemoteStream(remoteStream, peerId) {
 
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
-        // Thử lại sau 1 giây
-        setTimeout(() => {
-            try {
-                remoteVideo.play();
-            } catch (retryErr) {
-                console.error('Vẫn không thể phát video:', retryErr);
-            }
-        }, 1000);
     }
 }
 
