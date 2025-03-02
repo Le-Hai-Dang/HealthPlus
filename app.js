@@ -114,62 +114,38 @@ async function initializePeer() {
     });
 
     peer.on('call', async (call) => {
-        console.log('Có cuộc gọi đến từ:', call.peer);
-        
         try {
-            if (isAdmin) {
-                console.log('Admin nhận cuộc gọi mới');
-                if (currentCall) {
-                    console.log('Đã có cuộc gọi, thêm vào hàng đợi:', call.peer);
-                    waitingQueue.push(call.peer);
-                    const conn = peer.connect(call.peer);
-                    conn.on('open', () => {
-                        conn.send({
-                            type: 'waiting',
-                            position: waitingQueue.length
-                        });
-                    });
-                    call.close();
-                    showNextPatientButton();
-                    return;
-                }
-                currentUserId = call.peer;
-            }
-
-            // Khởi tạo stream mới
+            // Khởi tạo stream nếu chưa có
             if (!localStream) {
                 localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-                
-                console.log('Đã có local stream, hiển thị video local');
                 const localVideo = document.getElementById('local-video');
                 localVideo.srcObject = localStream;
-                await localVideo.play().catch(e => console.error('Lỗi khi play local video:', e));
+                await localVideo.play().catch(console.warn);
             }
 
-            console.log('Trả lời cuộc gọi với local stream');
+            // Answer call
             call.answer(localStream);
             
+            // Handle remote stream
             call.on('stream', (remoteStream) => {
-                console.log('Nhận được remote stream');
-                handleRemoteStream(remoteStream, call.peer);
+                const remoteVideo = document.getElementById('remote-video');
+                remoteVideo.srcObject = remoteStream;
+                remoteVideo.play().catch(console.warn);
+                
+                document.getElementById('setup-box').classList.add('hidden');
+                document.getElementById('call-box').classList.remove('hidden');
             });
 
-            call.on('error', (err) => {
-                console.error('Lỗi cuộc gọi:', err);
-                endCall();
-            });
-
+            // Handle call close
             call.on('close', () => {
-                console.log('Cuộc gọi đã kết thúc');
-                endCall(); 
+                endCall();
             });
 
             currentCall = call;
 
         } catch (err) {
-            console.error('Lỗi khi xử lý cuộc gọi đến:', err);
+            console.error('Lỗi khi xử lý cuộc gọi:', err);
             call.close();
-            alert('Không thể truy cập camera hoặc microphone: ' + err.message);
         }
     });
 
@@ -694,13 +670,6 @@ async function handleRemoteStream(remoteStream, peerId) {
     console.log('Xử lý remote stream từ:', peerId);
     
     try {
-        // Kiểm tra tracks
-        const videoTracks = remoteStream.getVideoTracks();
-        const audioTracks = remoteStream.getAudioTracks();
-        console.log('Video tracks:', videoTracks.length);
-        console.log('Audio tracks:', audioTracks.length);
-
-        // Lấy video element
         const remoteVideo = document.getElementById('remote-video');
         if (!remoteVideo) {
             throw new Error('Không tìm thấy remote-video element');
@@ -711,50 +680,17 @@ async function handleRemoteStream(remoteStream, peerId) {
         remoteVideo.playsInline = true;
         remoteVideo.muted = false;
 
-        // Set stream mới
+        // Set stream và play
         remoteVideo.srcObject = remoteStream;
-
-        // Đợi metadata với timeout ngắn hơn
         try {
-            await Promise.race([
-                new Promise((resolve) => {
-                    remoteVideo.onloadedmetadata = () => {
-                        console.log('Metadata đã load xong');
-                        resolve();
-                    };
-                }),
-                new Promise((resolve) => {
-                    setTimeout(() => {
-                        console.log('Bỏ qua đợi metadata, thử play video');
-                        resolve();
-                    }, 2000);
-                })
-            ]);
-
-            // Play video ngay lập tức
             await remoteVideo.play();
             console.log('Remote video đang phát');
-
         } catch (playError) {
-            console.error('Lỗi khi play video:', playError);
-            
-            // Thử play lại ngay
-            try {
-                await remoteVideo.play();
-                console.log('Video đã play sau khi thử lại');
-            } catch (retryErr) {
-                console.error('Vẫn không thể phát video:', retryErr);
-                
-                // Thử lần cuối khi user tương tác
-                document.addEventListener('click', async () => {
-                    try {
-                        await remoteVideo.play();
-                        console.log('Video đã play sau khi user tương tác');
-                    } catch (e) {
-                        console.error('Không thể phát video:', e);
-                    }
-                }, { once: true });
-            }
+            console.warn('Lỗi khi play video:', playError);
+            // Thử play khi user tương tác
+            document.addEventListener('click', () => {
+                remoteVideo.play().catch(console.error);
+            }, { once: true });
         }
 
         // Cập nhật UI
