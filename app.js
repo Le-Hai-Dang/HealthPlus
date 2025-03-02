@@ -202,26 +202,16 @@ async function connectToPeer(peerId) {
     }
 
     try {
-        // Dọn dẹp stream cũ nếu có
+        // Dọn dẹp stream cũ
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
             localStream = null;
         }
 
         // Khởi tạo stream mới
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                width: { ideal: 320 },
-                height: { ideal: 240 },
-                frameRate: { ideal: 15 }
-            },
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
-
+        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        
+        // Hiển thị local video
         const localVideo = document.getElementById('local-video');
         localVideo.srcObject = localStream;
         await localVideo.play();
@@ -230,34 +220,33 @@ async function connectToPeer(peerId) {
             throw new Error('Chưa kết nối tới server');
         }
 
+        console.log('Bắt đầu gọi tới:', peerId);
         const call = peer.call(peerId, localStream);
         
-        // Đợi kết nối ICE được thiết lập
-        await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Timeout kết nối ICE'));
-            }, 15000);
-
-            call.peerConnection.oniceconnectionstatechange = () => {
-                const state = call.peerConnection.iceConnectionState;
-                if (state === 'connected') {
-                    clearTimeout(timeout);
-                    resolve();
-                } else if (state === 'failed') {
-                    clearTimeout(timeout);
-                    reject(new Error('Kết nối ICE thất bại'));
-                }
-            };
+        // Xử lý stream từ người được gọi
+        call.on('stream', (remoteStream) => {
+            console.log('Nhận được remote stream');
+            handleRemoteStream(remoteStream, peerId);
         });
 
-        handleCall(call);
+        // Xử lý lỗi
+        call.on('error', (err) => {
+            console.error('Lỗi cuộc gọi:', err);
+            endCall();
+        });
+
+        // Xử lý đóng cuộc gọi
+        call.on('close', () => {
+            console.log('Cuộc gọi đã kết thúc');
+            endCall();
+        });
+
+        currentCall = call;
+        currentUserId = peerId;
 
     } catch (err) {
         console.error('Lỗi khi kết nối:', err);
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-        }
-        alert('Lỗi: ' + err.message);
+        alert('Không thể kết nối: ' + err.message);
     }
 }
 
@@ -693,75 +682,31 @@ async function startNewCall(peerId, conn) {
     try {
         // Dọn dẹp tài nguyên cũ
         if (localStream) {
-            localStream.getTracks().forEach(track => {
-                track.stop();
-                localStream.removeTrack(track);
-            });
+            localStream.getTracks().forEach(track => track.stop());
             localStream = null;
         }
+
+        // Khởi tạo stream mới
+        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         
-        // Khởi tạo stream mới với retry
-        let retryCount = 0;
-        const MAX_RETRIES = 3;
-        
-        while (retryCount < MAX_RETRIES && !localStream) {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 320 },
-                        height: { ideal: 240 },
-                        frameRate: { ideal: 15 }
-                    },
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-                break;
-            } catch (err) {
-                retryCount++;
-                console.error(`Lỗi khởi tạo stream lần ${retryCount}:`, err);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-
-        if (!localStream) {
-            throw new Error('Không thể khởi tạo stream sau nhiều lần thử');
-        }
-
-        // Thông báo cho user được gọi
-        conn.send({ type: 'called' });
-
         // Hiển thị local video
         const localVideo = document.getElementById('local-video');
         localVideo.srcObject = localStream;
-        await localVideo.play().catch(e => console.error('Lỗi khi play local video:', e));
+        await localVideo.play();
 
-        // Đóng cuộc gọi cũ
-        if (currentCall) {
-            currentCall.close();
-            currentCall = null;
+        // Thông báo cho user được gọi
+        if (conn) {
+            conn.send({ type: 'called' });
         }
 
-        // Tạo cuộc gọi mới với timeout
+        // Tạo cuộc gọi mới
         if (peer && peer.connected) {
             console.log('Bắt đầu gọi tới:', peerId);
             const call = peer.call(peerId, localStream);
             
-            // Xử lý timeout cho việc thiết lập kết nối
-            const connectionTimeout = setTimeout(() => {
-                if (!currentCall || !document.getElementById('remote-video').srcObject) {
-                    console.error('Timeout: Không thể thiết lập kết nối video');
-                    endCall();
-                    if (!isAdmin) {
-                        setTimeout(quickConnect, 2000);
-                    }
-                }
-            }, 20000);
-
+            // Xử lý stream từ người được gọi
             call.on('stream', (remoteStream) => {
-                clearTimeout(connectionTimeout);
+                console.log('Nhận được remote stream');
                 handleRemoteStream(remoteStream, peerId);
             });
 
@@ -790,15 +735,21 @@ async function handleRemoteStream(remoteStream, peerId) {
         // Set stream mới
         remoteVideo.srcObject = remoteStream;
         
-        // Đợi video element sẵn sàng
-        await new Promise(resolve => {
-            remoteVideo.onloadedmetadata = resolve;
+        // Đợi video element sẵn sàng và play
+        await new Promise((resolve, reject) => {
+            remoteVideo.onloadedmetadata = () => {
+                remoteVideo.play()
+                    .then(resolve)
+                    .catch(reject);
+            };
+            remoteVideo.onerror = reject;
+            
+            // Timeout sau 5 giây
+            setTimeout(() => reject(new Error('Timeout loading video')), 5000);
         });
 
-        // Play video
-        await remoteVideo.play();
         console.log('Remote video đang phát');
-
+        
         // Cập nhật UI
         document.getElementById('setup-box').classList.add('hidden');
         document.getElementById('call-box').classList.remove('hidden');
@@ -809,11 +760,10 @@ async function handleRemoteStream(remoteStream, peerId) {
 
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
-        // Thử lại sau 1 giây nếu lỗi
-        setTimeout(async () => {
+        // Thử lại sau 1 giây
+        setTimeout(() => {
             try {
-                await remoteVideo.play();
-                console.log('Remote video phát thành công sau khi thử lại');
+                remoteVideo.play();
             } catch (retryErr) {
                 console.error('Vẫn không thể phát video:', retryErr);
             }
