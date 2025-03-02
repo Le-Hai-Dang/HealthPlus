@@ -727,38 +727,40 @@ async function handleRemoteStream(remoteStream, peerId) {
     console.log('Xử lý remote stream từ:', peerId);
     
     try {
-        // Kiểm tra và lấy video element
-        const remoteVideo = document.querySelector('#remote-video');
-        if (!remoteVideo) {
-            throw new Error('Không tìm thấy remote-video element');
-        }
-
-        // Kiểm tra tracks
+        // Kiểm tra tracks trước
         const videoTracks = remoteStream.getVideoTracks();
         const audioTracks = remoteStream.getAudioTracks();
         console.log('Video tracks:', videoTracks.length);
         console.log('Audio tracks:', audioTracks.length);
+
+        if (videoTracks.length === 0) {
+            throw new Error('Không có video track trong stream');
+        }
+
+        // Lấy video element
+        const remoteVideo = document.getElementById('remote-video');
+        if (!remoteVideo) {
+            throw new Error('Không tìm thấy remote-video element');
+        }
 
         // Cấu hình video element
         remoteVideo.autoplay = true;
         remoteVideo.playsInline = true;
         remoteVideo.muted = false;
 
-        // Set stream mới
+        // Set stream và đợi metadata
         remoteVideo.srcObject = remoteStream;
+        await new Promise((resolve) => {
+            remoteVideo.onloadedmetadata = resolve;
+        });
 
-        // Đợi video sẵn sàng và play
-        try {
-            await remoteVideo.play();
-            console.log('Remote video đang phát');
-        } catch (playError) {
-            console.error('Lỗi khi play video:', playError);
-            // Thử play lại khi user tương tác
-            document.addEventListener('click', () => {
-                remoteVideo.play().catch(e => 
-                    console.error('Không thể phát video:', e)
-                );
-            }, { once: true });
+        // Play video
+        await remoteVideo.play();
+        console.log('Remote video đang phát');
+
+        // Kiểm tra video có đang phát không
+        if (remoteVideo.paused) {
+            throw new Error('Video vẫn bị pause sau khi play');
         }
 
         // Cập nhật UI
@@ -771,6 +773,18 @@ async function handleRemoteStream(remoteStream, peerId) {
 
     } catch (err) {
         console.error('Lỗi xử lý remote stream:', err);
+        // Thử lại sau khi user tương tác
+        document.body.addEventListener('click', async () => {
+            const remoteVideo = document.getElementById('remote-video');
+            if (remoteVideo && remoteVideo.srcObject) {
+                try {
+                    await remoteVideo.play();
+                    console.log('Video đã play sau khi user tương tác');
+                } catch (retryErr) {
+                    console.error('Vẫn không thể phát video:', retryErr);
+                }
+            }
+        }, { once: true });
     }
 }
 
