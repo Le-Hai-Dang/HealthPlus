@@ -189,46 +189,68 @@ async function connectToPeer(peerId) {
     }
 
     try {
-        const ICE_TIMEOUT = 15000; // 15 giây timeout cho ICE connection
-        
-        localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-        document.getElementById('local-video').srcObject = localStream;
-        
-        if (peer && peer.connected) {
-            const call = peer.call(peerId, localStream);
-            
-            // Thêm promise timeout cho ICE connection
-            const iceConnected = new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    reject(new Error('ICE Connection timeout'));
-                }, ICE_TIMEOUT);
-                
-                call.peerConnection.oniceconnectionstatechange = () => {
-                    if (call.peerConnection.iceConnectionState === 'connected') {
-                        clearTimeout(timeout);
-                        resolve();
-                    }
-                };
-            });
-            
-            await iceConnected;
-            handleCall(call);
-            
-        } else {
+        // Dọn dẹp stream cũ nếu có
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+            localStream = null;
+        }
+
+        // Khởi tạo stream mới
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: 320 },
+                height: { ideal: 240 },
+                frameRate: { ideal: 15 }
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+
+        const localVideo = document.getElementById('local-video');
+        localVideo.srcObject = localStream;
+        await localVideo.play();
+
+        if (!peer || !peer.connected) {
             throw new Error('Chưa kết nối tới server');
         }
+
+        const call = peer.call(peerId, localStream);
+        
+        // Đợi kết nối ICE được thiết lập
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Timeout kết nối ICE'));
+            }, 15000);
+
+            call.peerConnection.oniceconnectionstatechange = () => {
+                const state = call.peerConnection.iceConnectionState;
+                if (state === 'connected') {
+                    clearTimeout(timeout);
+                    resolve();
+                } else if (state === 'failed') {
+                    clearTimeout(timeout);
+                    reject(new Error('Kết nối ICE thất bại'));
+                }
+            };
+        });
+
+        handleCall(call);
+
     } catch (err) {
         console.error('Lỗi khi kết nối:', err);
-        alert('Lỗi: ' + err.message);
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
+        alert('Lỗi: ' + err.message);
     }
 }
 
 function handleCall(call) {
     currentCall = call;
-    let isStreamSet = false;
+    let streamProcessing = false;
 
     // Theo dõi trạng thái kết nối ICE
     call.peerConnection.oniceconnectionstatechange = () => {
@@ -237,47 +259,62 @@ function handleCall(call) {
         
         if (state === 'failed' || state === 'disconnected') {
             console.log('Kết nối ICE thất bại hoặc bị ngắt');
-            // Thử kết nối lại ngay lập tức
             call.peerConnection.restartIce();
         }
     };
 
-    // Xử lý remote stream với kiểm tra trùng lặp
-    call.on('stream', (remoteStream) => {
+    // Xử lý remote stream
+    call.on('stream', async (remoteStream) => {
         console.log('Nhận được remote stream');
-        if (isStreamSet) {
-            console.log('Stream đã được thiết lập, bỏ qua');
+        
+        // Tránh xử lý đồng thời nhiều stream
+        if (streamProcessing) {
+            console.log('Đang xử lý stream khác, bỏ qua');
             return;
         }
         
-        const remoteVideo = document.getElementById('remote-video');
-        if (remoteVideo.srcObject) {
-            console.log('Dọn dẹp stream cũ');
-            remoteVideo.srcObject = null;
-            remoteVideo.load();
-        }
-
-        // Đợi một chút trước khi set stream mới
-        setTimeout(() => {
+        streamProcessing = true;
+        
+        try {
+            const remoteVideo = document.getElementById('remote-video');
+            
+            // Dọn dẹp stream cũ
+            if (remoteVideo.srcObject) {
+                const oldStream = remoteVideo.srcObject;
+                remoteVideo.srcObject = null;
+                oldStream.getTracks().forEach(track => track.stop());
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // Thiết lập stream mới
             remoteVideo.srcObject = remoteStream;
-            remoteVideo.play()
-                .then(() => {
-                    console.log('Remote video đang phát');
-                    isStreamSet = true;
-                })
-                .catch(e => {
-                    console.error('Lỗi khi play remote video:', e);
-                    // Thử lại sau 1 giây nếu thất bại
-                    setTimeout(() => {
-                        remoteVideo.play()
-                            .then(() => {
-                                console.log('Remote video phát thành công sau khi thử lại');
-                                isStreamSet = true;
-                            })
-                            .catch(err => console.error('Vẫn không thể phát video:', err));
-                    }, 1000);
-                });
-        }, 500);
+            
+            // Đợi video load xong
+            await new Promise(resolve => {
+                remoteVideo.onloadedmetadata = resolve;
+            });
+            
+            // Play video
+            await remoteVideo.play();
+            console.log('Remote video đang phát');
+            
+        } catch (err) {
+            console.error('Lỗi khi xử lý remote stream:', err);
+            
+            // Thử lại sau 1 giây nếu lỗi
+            setTimeout(async () => {
+                try {
+                    const remoteVideo = document.getElementById('remote-video');
+                    await remoteVideo.play();
+                    console.log('Remote video phát thành công sau khi thử lại');
+                } catch (retryErr) {
+                    console.error('Không thể phát video sau khi thử lại:', retryErr);
+                }
+            }, 1000);
+            
+        } finally {
+            streamProcessing = false;
+        }
     });
 
     // Cập nhật UI
