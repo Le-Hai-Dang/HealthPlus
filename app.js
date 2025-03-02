@@ -36,8 +36,10 @@ const mediaConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: 22050,
-        channelCount: 1
+        sampleRate: 48000,
+        channelCount: 1,
+        latency: 0,
+        volume: 1.0
     }
 };
 
@@ -362,6 +364,12 @@ function endCall() {
         currentCall = null;
     }
     
+    if (window.currentAudio) {
+        window.currentAudio.pause();
+        window.currentAudio.srcObject = null;
+        window.currentAudio = null;
+    }
+
     if (localStream) {
         localStream.getTracks().forEach(track => {
             track.stop();
@@ -386,6 +394,8 @@ function endCall() {
     currentUserId = null;
     document.getElementById('call-box').classList.add('hidden');
     document.getElementById('setup-box').classList.remove('hidden');
+    document.querySelector('.status-dot').classList.remove('active');
+    document.querySelector('.status-text').textContent = 'Đang gọi...';
 }
 
 // Thêm hàm toggleLoginForm
@@ -772,15 +782,27 @@ function handleRemoteAudioOnly(remoteStream, peerId) {
     try {
         const audioElement = new Audio();
         audioElement.srcObject = remoteStream;
-        audioElement.play();
+        audioElement.autoplay = true;
+        
+        // Tối ưu audio
+        audioElement.volume = 1.0;
+        audioElement.setSinkId('default');
 
-        // Cập nhật UI
+        // Hiển thị UI cuộc gọi
         document.getElementById('setup-box').classList.add('hidden');
         document.getElementById('call-box').classList.remove('hidden');
-        updateControlButtons();
-        showNextPatientButton();
+        document.querySelector('.status-text').textContent = 'Đang trong cuộc gọi';
+        document.querySelector('.status-dot').classList.add('active');
+        
+        // Lưu audio element để có thể dọn dẹp sau
+        window.currentAudio = audioElement;
+        
+        audioElement.onended = () => {
+            endCall();
+        };
+
     } catch (err) {
-        console.error('Lỗi xử lý remote audio:', err);
+        console.error('Lỗi xử lý audio:', err);
     }
 }
 

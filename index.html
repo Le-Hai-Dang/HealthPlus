@@ -51,20 +51,16 @@
         </div>
 
         <div id="call-box" class="call-box hidden">
-            <div class="video-container">
-                <div class="video-wrapper">
-                    <video id="local-video" autoplay playsinline muted></video>
-                </div>
-                <div class="video-wrapper">
-                    <video id="remote-video" autoplay playsinline></video>
+            <div class="doctor-avatar">
+                <img src="doctor-avatar.png" alt="Bác sĩ">
+                <div class="call-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Đang gọi...</span>
                 </div>
             </div>
-            <div class="controls">
-                <button id="camera-btn" onclick="toggleCamera()">Tắt Camera</button>
-                <button id="mic-btn" onclick="toggleMic()">Tắt Mic</button>
+            <div class="call-controls">
+                <button id="mic-btn" onclick="toggleMic()">Tắt mic</button>
                 <button id="end-call-btn" onclick="endCall()">Kết thúc</button>
-                <button id="next-patient-btn" onclick="nextPatient()" class="hidden">Bệnh nhân tiếp theo</button>
-                <button id="return-btn" onclick="returnToClinic()" class="hidden">Quay lại phòng tư vấn</button>
             </div>
         </div>
     </div>
