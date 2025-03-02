@@ -591,38 +591,33 @@ async function handleRemoteAudioOnly(remoteStream, peerId) {
         // Tạo audio element mới
         const audioElement = new Audio();
         audioElement.autoplay = true;
+        audioElement.playsInline = true;
+        audioElement.volume = 1.0;
         
         // Dừng audio cũ nếu có
-        if (window.currentAudio) {
-            window.currentAudio.pause();
-            window.currentAudio.srcObject = null;
+        const oldAudio = document.querySelector('audio');
+        if (oldAudio) {
+            oldAudio.pause();
+            oldAudio.remove();
         }
 
-        // Set stream mới
+        // Thêm audio element mới vào DOM
+        audioElement.id = 'remote-audio';
+        document.body.appendChild(audioElement);
+
+        // Set stream và play
         audioElement.srcObject = remoteStream;
-        await audioElement.play();
-        window.currentAudio = audioElement;
+        await audioElement.play().catch(async (err) => {
+            console.error('[DEBUG] Lỗi play audio:', err);
+            // Thử play lại sau 1s
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return audioElement.play();
+        });
 
+        console.log('[DEBUG] Đã play audio thành công');
+        
         // Cập nhật UI
-        const setupBox = document.getElementById('setup-box');
-        const callBox = document.getElementById('call-box');
-        const statusText = document.querySelector('.status-text');
-        const statusDot = document.querySelector('.status-dot');
-
-        if (setupBox) setupBox.classList.add('hidden');
-        if (callBox) callBox.classList.remove('hidden');
-        
-        if (statusText) statusText.textContent = 'Đang trong cuộc gọi';
-        if (statusDot) statusDot.classList.add('active');
-
-        // Hiện các nút điều khiển
-        const micBtn = document.getElementById('mic-btn');
-        const endCallBtn = document.getElementById('end-call-btn');
-        
-        if (micBtn) micBtn.classList.remove('hidden');
-        if (endCallBtn) endCallBtn.classList.remove('hidden');
-
-        console.log('[DEBUG] Đã thiết lập xong audio và UI');
+        updateCallUI(true);
 
     } catch (err) {
         console.error('[DEBUG] Lỗi xử lý remote audio:', err);
@@ -774,22 +769,35 @@ function setupCallHandlers() {
         console.log('[DEBUG] Nhận cuộc gọi từ:', call.peer);
         
         try {
-            // Trả lời cuộc gọi ngay với localStream đã khởi tạo
+            // Đảm bảo có local stream
+            if (!localStream) {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: AUDIO_CONFIG
+                });
+                console.log('[DEBUG] Đã khởi tạo local stream');
+            }
+
+            // Trả lời cuộc gọi
+            console.log('[DEBUG] Trả lời cuộc gọi với local stream');
             call.answer(localStream);
             currentCall = call;
 
             // Xử lý remote stream
             call.on('stream', (remoteStream) => {
                 console.log('[DEBUG] Nhận được remote stream');
-                const audioElement = new Audio();
-                audioElement.srcObject = remoteStream;
-                audioElement.play();
+                console.log('[DEBUG] Remote stream tracks:', remoteStream.getTracks().length);
                 
-                // Cập nhật UI
-                document.getElementById('setup-box').classList.add('hidden');
-                document.getElementById('call-box').classList.remove('hidden');
-                document.querySelector('.status-text').textContent = 'Đang trong cuộc gọi';
-                document.querySelector('.status-dot').classList.add('active');
+                handleRemoteAudioOnly(remoteStream, call.peer)
+                    .catch(err => {
+                        console.error('[DEBUG] Lỗi xử lý remote stream:', err);
+                        call.close();
+                    });
+            });
+
+            // Xử lý đóng cuộc gọi
+            call.on('close', () => {
+                console.log('[DEBUG] Cuộc gọi kết thúc');
+                endCall();
             });
 
         } catch (err) {
